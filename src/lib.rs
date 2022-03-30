@@ -1,18 +1,22 @@
-use std::{io::{BufReader, Stdin}, fs::File, path::Path};
+use std::{
+    fs::File,
+    io::{BufReader, Stdin},
+    path::Path,
+};
 
 use anyhow::Context;
 use serde::{Deserialize, Serialize};
 
 pub mod prelude {
     use std::collections::{HashMap, HashSet};
-    
-    pub use serde_json::Value as JsonValue;
+
     pub use indexmap::IndexMap;
-    
+    pub use serde_json::Value as JsonValue;
+
     pub type Map<K, V> = HashMap<K, V>;
     pub type Set<K, V> = HashSet<K, V>;
-    
-    pub use anyhow::{Result, anyhow, bail};
+
+    pub use anyhow::{anyhow, bail, Result};
     pub use std::result::Result as StdResult;
 
     #[cfg(unix)]
@@ -21,15 +25,14 @@ pub mod prelude {
             libc::signal(libc::SIGPIPE, libc::SIG_DFL);
         }
     }
-    
+
     #[cfg(not(unix))]
     pub fn reset_sigpipe() {
         // no-op
     }
 
-    pub use super::{fieldname, JobState, JobId, open_file_or_stdin, Input};
+    pub use super::{fieldname, open_file_or_stdin, Input, JobId, JobState};
 }
-
 
 pub mod fieldname {
     pub const JOB_ID: &'static str = "JobID";
@@ -38,11 +41,11 @@ pub mod fieldname {
     pub const TIMELIMIT: &'static str = "Timelimit";
     pub const ELAPSED: &'static str = "Elapsed";
     pub const MAX_RSS: &'static str = "MaxRSS";
-    
+
     /// Custom fields
     pub const CANCELLED_BY: &'static str = "CancelledBy";
-    
-    pub static DROP_FIELDS: phf::Set<&'static str> = phf::phf_set!{
+
+    pub static DROP_FIELDS: phf::Set<&'static str> = phf::phf_set! {
         "TimelimitRaw",
         "ElapsedRaw",
         "ResvCPURAW",
@@ -67,7 +70,6 @@ pub mod fieldname {
         "MaxPages",
     ];
 
-
     pub const UINT_FIELDS: &'static [&'static str] = &[
         "UID",
         "GID",
@@ -76,7 +78,7 @@ pub mod fieldname {
         "AllocCPUS",
         "AllocNodes",
         "ReqCPUS",
-        "NTasks"
+        "NTasks",
     ];
 
     pub const DURATION_FIELDS: &'static [&'static str] = &[
@@ -91,12 +93,10 @@ pub mod fieldname {
         "UserCPU",
         "SystemCPU",
     ];
-
-
 }
 
 #[derive(Clone, Copy, Deserialize, Serialize, PartialEq, Eq, Debug)]
-#[serde(rename_all="SCREAMING_SNAKE_CASE")]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum JobState {
     BootFail,
     Cancelled,

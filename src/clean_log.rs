@@ -6,7 +6,6 @@ use lazy_static::lazy_static;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 
-
 use slurm_tools::{prelude::*, JobState};
 use std::{
     fmt::Display,
@@ -55,7 +54,6 @@ type ParseResult<T> = StdResult<T, ParseError>;
 struct Metadata {
     is_batch_step: bool,
 }
-
 
 #[derive(Clone, Copy, Debug)]
 pub enum MergeAction {
@@ -167,7 +165,6 @@ fn parse_job_id(s: &str) -> ParseResult<JobId> {
     Err(ParseError::UnsupportedJobId(s.to_string()))
 }
 
-
 fn parse_job_state(s: &str) -> ParseResult<(JobState, Option<u64>)> {
     fn simple_case(s: &str) -> Option<JobState> {
         use JobState::*;
@@ -191,7 +188,7 @@ fn parse_job_state(s: &str) -> ParseResult<(JobState, Option<u64>)> {
         Some(s)
     }
     if let Some(s) = simple_case(s) {
-        return Ok((s, None))
+        return Ok((s, None));
     }
 
     if let Some(uid) = s.strip_prefix("CANCELLED by ") {

@@ -77,7 +77,11 @@ fn get_new_limit(p: &Partition, job: &Job) -> Result<StdResult<ResourceAmount, E
     let current = require_float_field(job, p.resource.value_field())?;
     let adjusted = current * (1. + p.margin);
 
-    let search_for = if job.job_state == JobState::Completed { adjusted } else { limit };
+    let search_for = if job.job_state == JobState::Completed {
+        adjusted
+    } else {
+        limit
+    };
 
     let mut bucket = p
         .buckets
@@ -107,7 +111,9 @@ fn run(input: impl BufRead, mut output: impl Write, options: &Partition) -> Resu
         let mut job = job?;
 
         match get_new_limit(&options, &job)? {
-            Ok(l) => { job.fields.insert(output_field.to_string(), l.into()); },
+            Ok(l) => {
+                job.fields.insert(output_field.to_string(), l.into());
+            }
             Err(e) => {
                 if !options.ignore_exceeding {
                     bail!(
@@ -153,8 +159,6 @@ struct ClArgs {
     #[clap(flatten)]
     partition: Partition,
 }
-
-
 
 fn main() -> Result<()> {
     reset_sigpipe();
