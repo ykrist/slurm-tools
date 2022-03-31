@@ -1,5 +1,5 @@
 #![allow(unused)]
-use std::io::{stdout, BufRead, Write};
+use std::io::{stdout, BufRead, Read, Write};
 
 use clap::{ArgEnum, Args, Parser};
 use serde::{Deserialize, Serialize};
@@ -99,7 +99,7 @@ fn get_new_limit(p: &Partition, job: &Job) -> Result<StdResult<ResourceAmount, E
     }))
 }
 
-fn run(input: impl BufRead, mut output: impl Write, options: &Partition) -> Result<()> {
+fn run(input: impl Read, mut output: impl Write, options: &Partition) -> Result<()> {
     let output_field = options
         .output_field
         .as_ref()
@@ -166,7 +166,7 @@ fn main() -> Result<()> {
     let out = stdout();
     let output = out.lock();
 
-    match open_file_or_stdin(args.filename.as_ref())? {
+    match Input::default_stdin(args.filename.as_ref())? {
         Input::File(input) => run(input, output, &args.partition),
         Input::Stdin(stdin) => run(stdin.lock(), output, &args.partition),
     }

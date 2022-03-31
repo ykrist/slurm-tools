@@ -1,10 +1,3 @@
-use std::{
-    fs::File,
-    io::{BufReader, Stdin},
-    path::Path,
-};
-
-use anyhow::Context;
 use serde::{Deserialize, Serialize};
 
 pub mod prelude {
@@ -19,19 +12,9 @@ pub mod prelude {
     pub use anyhow::{anyhow, bail, Result};
     pub use std::result::Result as StdResult;
 
-    #[cfg(unix)]
-    pub fn reset_sigpipe() {
-        unsafe {
-            libc::signal(libc::SIGPIPE, libc::SIG_DFL);
-        }
-    }
+    pub use posix_cli_utils::*;
 
-    #[cfg(not(unix))]
-    pub fn reset_sigpipe() {
-        // no-op
-    }
-
-    pub use super::{fieldname, open_file_or_stdin, Input, JobId, JobState};
+    pub use super::{fieldname, JobId, JobState};
 }
 
 pub mod fieldname {
@@ -128,21 +111,4 @@ pub enum JobId {
         #[serde(rename = "JobID")]
         job_id: u64,
     },
-}
-
-pub enum Input {
-    File(BufReader<File>),
-    Stdin(Stdin),
-}
-
-pub fn open_file_or_stdin<P: AsRef<Path>>(path: Option<P>) -> anyhow::Result<Input> {
-    if let Some(path) = path {
-        let path = path.as_ref();
-        File::open(path)
-            .map(BufReader::new)
-            .map(Input::File)
-            .with_context(|| format!("unable to read {}", path.display()))
-    } else {
-        Ok(Input::Stdin(std::io::stdin()))
-    }
 }

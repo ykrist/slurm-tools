@@ -197,6 +197,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "posix-cli-utils"
+version = "0.1.0"
+source = "git+https://github.com/ykrist/posix-cli-utils.git#110c893c50e246708970a5b4fc1931c608534faf"
+dependencies = [
+ "anyhow",
+ "clap",
+ "libc",
+]
+
+[[package]]
 name = "ppv-lite86"
 version = "0.2.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -350,6 +360,7 @@ dependencies = [
  "lazy_static",
  "libc",
  "phf",
+ "posix-cli-utils",
  "regex",
  "serde",
  "serde_json",

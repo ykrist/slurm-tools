@@ -403,7 +403,7 @@ fn main() -> Result<()> {
     let stdout = stdout();
     let stdout_lock = stdout.lock();
 
-    match open_file_or_stdin(args.filename.as_ref())? {
+    match Input::default_stdin(args.filename.as_ref())?.buffered() {
         Input::File(input) => parse(input, stdout_lock, &args.options),
         Input::Stdin(input) => parse(input.lock(), stdout_lock, &args.options),
     }
