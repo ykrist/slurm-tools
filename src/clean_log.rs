@@ -6,7 +6,7 @@ use lazy_static::lazy_static;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 
-use slurm_tools::{prelude::*, JobState};
+use slurm_tools::*;
 use std::{
     fmt::Display,
     fs::File,
@@ -17,38 +17,7 @@ use std::{
 
 pub const BATCH_MERGE_FIELDS: &'static [(&'static str, MergeAction)] = &[];
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum ParseError {
-    IncorrectNumberOfFields,
-    UnsupportedJobId(String),
-    MissingJobId,
-    Bytesize(String),
-    Uint(String),
-    Duration(String),
-    JobState(String),
-}
 
-impl Display for ParseError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        use ParseError::*;
-        match self {
-            IncorrectNumberOfFields => write!(
-                f,
-                "row has incorrect number of fields (try using a different delimiter)"
-            ),
-            Bytesize(s) => write!(f, "unable to parse bytesize ({})", s),
-            Duration(s) => write!(f, "unable to parse duration ({})", s),
-            JobState(s) => write!(f, "unable to parse job state ({})", s),
-            Uint(s) => write!(f, "unable to parse unsigned int ({})", s),
-            UnsupportedJobId(s) => write!(f, "JobIDs of this type ({}) is not yet supported", s),
-            MissingJobId => write!(f, "Header must have a JobID field"),
-        }
-    }
-}
-
-impl std::error::Error for ParseError {}
-
-type ParseResult<T> = StdResult<T, ParseError>;
 
 #[derive(Copy, Clone, Debug)]
 struct Metadata {
@@ -141,6 +110,11 @@ struct JobRow<'a> {
     fields: IndexMap<&'a str, JsonValue>,
 }
 
+#[inline]
+fn parse_bytesize(s: &str) -> ParseResult<u64> {
+    parse_si_suffix(s.strip_suffix("n").unwrap_or(s))
+}
+
 fn parse_job_id(s: &str) -> ParseResult<JobId> {
     if let Ok(job_id) = s.parse::<u64>() {
         return Ok(JobId::Normal { job_id });
@@ -215,28 +189,6 @@ fn parse_header<'a>(options: &ParseOptions, line: &'a str) -> ParseResult<Vec<&'
     } else {
         Err(ParseError::MissingJobId)
     }
-}
-
-fn parse_uint(s: &str) -> ParseResult<u64> {
-    s.parse().map_err(|_| ParseError::Uint(s.to_string()))
-}
-
-fn parse_bytesize(s: &str) -> ParseResult<u64> {
-    let s = s.strip_suffix("n").unwrap_or(s);
-
-    let mut power = 0;
-    let mut base = s;
-    for (suffix, p) in [('K', 10), ('M', 20), ('G', 30), ('T', 40), ('P', 50)] {
-        if let Some(b) = s.strip_suffix(suffix) {
-            base = b;
-            power = p;
-            break;
-        }
-    }
-    let base: f64 = base
-        .parse()
-        .map_err(|_| ParseError::Bytesize(s.to_string()))?;
-    Ok((base * f64::powi(2.0, power)).round() as u64)
 }
 
 fn parse_fields<'a, F, T, I>(r: &mut JobRow, fields: I, mut parser: F) -> ParseResult<()>
@@ -352,50 +304,7 @@ fn parse(mut input: impl BufRead, mut output: impl Write, options: &ParseOptions
     Ok(())
 }
 
-fn parse_duration(s: &str) -> ParseResult<u64> {
-    lazy_static! {
-        static ref LONG_FORMAT: Regex =
-            Regex::new(r"^((?P<days>\d+)\-)?(?P<hours>\d\d?):(?P<mins>\d\d?):(?P<secs>\d\d?)$")
-                .unwrap();
-        static ref SHORT_FORMAT: Regex =
-            Regex::new(r"^(?P<mins>\d\d?):(?P<secs>\d\d?).(?P<millis>\d\d\d)$").unwrap();
-    }
-    let make_error = || ParseError::Duration(s.to_string());
 
-    let captures = LONG_FORMAT
-        .captures(s)
-        .or_else(|| SHORT_FORMAT.captures(s))
-        .ok_or_else(make_error)?;
-
-    let parse_int = |s: &str| {
-        let s = s.trim_start_matches('0');
-        if s.is_empty() {
-            Ok(0)
-        } else {
-            s.parse::<u64>().map_err(|_| make_error())
-        }
-    };
-
-    let parse_field = |n| parse_int(captures.name(n).unwrap().as_str());
-
-    let parse_optional_field = |n| {
-        captures
-            .name(n)
-            .map(|s| parse_int(s.as_str()))
-            .unwrap_or(Ok(0))
-    };
-
-    let days = parse_optional_field("days")?;
-    let hrs = parse_optional_field("hours")?;
-    let min = parse_field("mins")?;
-    let mut secs = parse_field("secs")?;
-    let millis = parse_optional_field("millis")?;
-    if millis >= 500 {
-        secs += 1
-    };
-
-    Ok(((days * 24 + hrs) * 60 + min) * 60 + secs)
-}
 
 fn main() -> Result<()> {
     reset_sigpipe();
@@ -406,33 +315,5 @@ fn main() -> Result<()> {
     match Input::default_stdin(args.filename.as_ref())?.buffered() {
         Input::File(input) => parse(input, stdout_lock, &args.options),
         Input::Stdin(input) => parse(input.lock(), stdout_lock, &args.options),
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use crate::parse_duration;
-
-    #[test]
-    fn duration_parsing() {
-        const M: u64 = 60;
-        const H: u64 = 60 * M;
-        const D: u64 = 24 * H;
-
-        assert_eq!(parse_duration("00:00:00"), Ok(0));
-        assert_eq!(parse_duration("00:00:01"), Ok(1));
-        assert_eq!(parse_duration("1-00:00:01"), Ok(1 * D + 1));
-        assert_eq!(
-            parse_duration("10-12:45:10"),
-            Ok(10 * D + 12 * H + 45 * M + 10)
-        );
-        assert_eq!(parse_duration("0:68:0"), Ok(68 * M));
-        assert_eq!(parse_duration("00:0.123"), Ok(0));
-        assert_eq!(parse_duration("00:00.900"), Ok(1));
-
-        assert!(parse_duration("5:0").is_err());
-        assert!(parse_duration("00:00:00.001").is_err());
-        assert!(parse_duration("00:00.01").is_err());
-        assert!(parse_duration("-00:00:00").is_err());
     }
 }
