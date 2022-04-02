@@ -12,9 +12,25 @@ use slurm_tools::*;
 
 type ResourceAmount = f64;
 
+#[derive(Clone, Copy, Debug, PartialOrd)]
+pub struct OrderF64(pub f64);
+
+impl PartialEq for OrderF64 {
+    fn eq(&self, other: &Self) -> bool {
+        self.0.to_bits() == other.0.to_bits()
+    }
+}
+
+impl Eq for OrderF64 {}
+
+impl Ord for OrderF64 {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.partial_cmp(other).expect("nan or inf")
+    }
+}
+
 #[derive(Clone, Copy, Debug)]
 struct ExceedsLimits {
-    limit: ResourceAmount,
     value: ResourceAmount,
 }
 
@@ -36,6 +52,10 @@ pub enum PartitionResource {
     Time,
 }
 
+fn approx_eq(a: f64, b: f64, rel_tol: f64) -> bool {
+    (a - b).abs() / f64::min(a.abs(), b.abs()) < rel_tol
+}
+
 #[derive(Clone, Debug)]
 pub struct Partition {
     resource: PartitionResource,
@@ -46,7 +66,7 @@ pub struct Partition {
 impl Partition {
     fn needs_increase(&self, s: JobState, usage: f64, limit: f64) -> bool {
         if usage >= limit {
-            return true
+            return true;
         }
         match self.resource {
             PartitionResource::Memory => matches!(s, JobState::OutOfMemory),
@@ -105,24 +125,57 @@ fn find_bucket(val: f64, buckets: &[f64]) -> Option<usize> {
     buckets.iter().position(|&b| val <= b)
 }
 
-fn get_new_limit(p: &Partition, job: &Job) -> Result<StdResult<ResourceAmount, ExceedsLimits>> {
-    let limit = require_float_field(job, p.resource.limit_field())?;
-    let current = require_float_field(job, p.resource.value_field())?;
-    
-    let usage = p.estimate_usage(job.job_state, current, limit);
-    let mut bucket = p.buckets.iter().position(|&b| usage <= b).unwrap_or(p.buckets.len());
+fn get_new_limit(
+    p: &Partition,
+    j: JobState,
+    current: f64,
+    limit: f64,
+) -> Result<StdResult<ResourceAmount, ExceedsLimits>> {
+    let current_with_margin = (1. + p.options.margin) * current;
+    let get_bucket = |val| {
+        p.buckets
+            .iter()
+            .position(|&b| val <= b)
+            .unwrap_or(p.buckets.len())
+    };
 
-    if p.needs_increase(job.job_state, usage, limit) {
-        bucket += 1;
-    }
+    let (bucket, usage) = match (j, current_with_margin < limit) {
+        (JobState::Completed, true) => {
+            // Case 1: Job completed, simple lookup
+            (get_bucket(current_with_margin), current_with_margin)
+        }
+        (_, false) => {
+            // Case 2: Resource we're currently looking at wasn't enough
+            // Job may or may not have failed but we should respect the margin.
+            let mut k = get_bucket(current_with_margin);
+            let (k_limit, _) = p.buckets.iter()
+                .enumerate()
+                .min_by_key(|(k, b)| OrderF64((limit - *b).abs()))
+                .unwrap();
+            dbg!(k, k_limit);
+            debug_assert!(k_limit <= k);
+            if k == k_limit && k < p.buckets.len() - 1 {
+                k += 1;
+            }
+            (k, current_with_margin)
+        }
+        (_, true) => {
+            // Case 3: Job failed for some other reason.  Try to maintain the current limit,
+            // but don't decrease it (much).
+            let k = p
+                .buckets
+                .iter()
+                .position(|&b| limit * 0.95 <= b && current_with_margin <= b)
+                .unwrap_or(p.buckets.len());
+            (k, limit)
+        }
+    };
 
-    let bucket = p.buckets
+    let bucket = p
+        .buckets
         .get(bucket)
         .copied()
-        .ok_or(ExceedsLimits {
-            limit,
-            value: current,
-        });
+        .ok_or(ExceedsLimits { value: usage });
 
     Ok(bucket)
 }
@@ -132,21 +185,24 @@ fn run(input: impl Read, mut output: impl Write, p: &Partition) -> Result<()> {
     for job in serde_json::Deserializer::from_reader(input).into_iter::<Job>() {
         let mut job = job?;
 
-        match get_new_limit(&p, &job)? {
+        let current = require_float_field(&job, p.resource.value_field())?;
+        let limit = require_float_field(&job, p.resource.limit_field())?;
+
+        match get_new_limit(&p, job.job_state, current, limit)? {
             Ok(l) => {
                 job.fields.insert(p.options.output_field.clone(), l.into());
             }
             Err(e) => {
                 if !p.options.ignore_exceeding {
                     bail!(
-                        "job at index {} (line {}) exceeds all limits: MAX_LIMIT = {} < {} * {}. \n The limit given to the job was {} = {}.",
+                        "job at index {} (line {}) exceeds all limits: MAX_LIMIT = {} < {} = AMOUNT_WITH_MARGIN.\n\
+                        The limit given to the job was {} = {}.",
                         idx,
                         idx + 1,
                         format_num!(",.0", *p.buckets.last().unwrap()),
                         format_num!(",.0", e.value),
-                        1.0 + p.options.margin,
                         p.resource.limit_field(),
-                        format_num!(",.0", e.limit),
+                        format_num!(",.0", limit),
                     )
                 }
             }
@@ -157,8 +213,6 @@ fn run(input: impl Read, mut output: impl Write, p: &Partition) -> Result<()> {
     }
     Ok(())
 }
-
-
 
 #[derive(Clone, Debug, Parser)]
 struct ClArgs {
@@ -257,16 +311,28 @@ enum ResourceType {
 impl ResourceType {
     fn into_partition(self) -> Partition {
         match self {
-            ResourceType::Memory { buckets, options } => Partition {
-                buckets,
+            ResourceType::Memory {
+                mut buckets,
                 options,
-                resource: PartitionResource::Memory,
-            },
-            ResourceType::Time { buckets, options } => Partition {
-                buckets,
+            } => {
+                buckets.sort_unstable_by(|a, b| f64::partial_cmp(a, b).unwrap());
+                Partition {
+                    buckets,
+                    options,
+                    resource: PartitionResource::Memory,
+                }
+            }
+            ResourceType::Time {
+                mut buckets,
                 options,
-                resource: PartitionResource::Time,
-            },
+            } => {
+                buckets.sort_unstable_by(|a, b| f64::partial_cmp(a, b).unwrap());
+                Partition {
+                    buckets,
+                    options,
+                    resource: PartitionResource::Time,
+                }
+            }
         }
     }
 }
@@ -282,4 +348,42 @@ fn main() -> Result<()> {
         Input::Stdin(stdin) => run(stdin.lock(), output, &args.resource.into_partition()),
     }
     // Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn get_bucket(buckets: &[f64], s: JobState, current: f64, limit: f64) -> Option<f64> {
+        let p = Partition {
+            resource: PartitionResource::Time, // doesn't matter,
+            buckets: buckets.to_vec(),
+            options: CommonOptions {
+                margin: 0.1,
+                output_field: "test".into(),
+                ignore_exceeding: false,
+            },
+        };
+        get_new_limit(&p, s, current, limit).unwrap().ok()
+    }
+
+    #[test]
+    fn new_limit_logic() {
+        use JobState::*;
+        let buckets = &[1., 5., 10., 20.];
+        assert_eq!(get_bucket(buckets, Completed, 4.0, 5.0), Some(5.0));
+        assert_eq!(get_bucket(buckets, Completed, 4.0, 10.0), Some(5.0));
+        assert_eq!(get_bucket(buckets, Failed, 4.0, 10.0), Some(10.0));
+        assert_eq!(get_bucket(buckets, Failed, 4.0, 10.01), Some(10.0));
+        assert_eq!(get_bucket(buckets, Failed, 4.0, 11.0), Some(20.0));
+        assert_eq!(get_bucket(buckets, Failed, 4.5, 4.0), Some(10.0));
+        assert_eq!(get_bucket(buckets, Failed, 5.5, 5.0), Some(10.0));
+        assert_eq!(get_bucket(buckets, Failed, 6.5, 5.5), Some(10.0));
+        assert_eq!(get_bucket(buckets, Completed, 9.95, 10.0), Some(20.0));
+        assert_eq!(get_bucket(buckets, Failed, 9.5, 9.0), Some(20.0));
+        assert_eq!(get_bucket(buckets, Completed, 9.5, 9.0), Some(20.0));
+        assert_eq!(get_bucket(buckets, Completed, 10.5, 11.0), Some(20.0));
+        assert_eq!(get_bucket(buckets, Failed, 9.0, 10.1), Some(10.0));
+        assert_eq!(get_bucket(buckets, Completed, 9.0, 10.1), Some(10.0));
+    }
 }
