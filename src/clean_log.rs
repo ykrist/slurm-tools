@@ -1,23 +1,12 @@
-#![allow(unused)]
 use anyhow::Context;
 use clap::{Args, Parser};
 use indexmap::map::Entry;
-use lazy_static::lazy_static;
-use regex::Regex;
 use serde::{Deserialize, Serialize};
 
 use slurm_tools::*;
-use std::{
-    fmt::Display,
-    fs::File,
-    io::{stdin, stdout, BufRead, BufReader, Write},
-    num::ParseIntError,
-    str::FromStr,
-};
+use std::io::{stdout, BufRead, Write};
 
 pub const BATCH_MERGE_FIELDS: &'static [(&'static str, MergeAction)] = &[];
-
-
 
 #[derive(Copy, Clone, Debug)]
 struct Metadata {
@@ -218,7 +207,6 @@ fn parse_body<'a>(
         is_batch_step: false,
     };
 
-    let mut count = 0;
     let mut values = line.split(&options.delimiter).map(|s| s.trim());
 
     for &field in header {
@@ -303,8 +291,6 @@ fn parse(mut input: impl BufRead, mut output: impl Write, options: &ParseOptions
     }
     Ok(())
 }
-
-
 
 fn main() -> Result<()> {
     reset_sigpipe();

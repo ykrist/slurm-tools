@@ -123,7 +123,6 @@ pub enum ParseError {
     JobState(String),
 }
 
-
 pub type ParseResult<T> = StdResult<T, ParseError>;
 
 impl Display for ParseError {
@@ -146,7 +145,6 @@ impl Display for ParseError {
 
 impl std::error::Error for ParseError {}
 
-
 pub fn parse_uint(s: &str) -> ParseResult<u64> {
     s.parse().map_err(|_| ParseError::Uint(s.to_string()))
 }
@@ -166,7 +164,6 @@ pub fn parse_si_suffix(s: &str) -> ParseResult<u64> {
         .map_err(|_| ParseError::Bytesize(s.to_string()))?;
     Ok((base * f64::powi(2.0, power)).round() as u64)
 }
-
 
 pub fn parse_duration(s: &str) -> ParseResult<u64> {
     lazy_static::lazy_static! {
@@ -212,7 +209,6 @@ pub fn parse_duration(s: &str) -> ParseResult<u64> {
 
     Ok(((days * 24 + hrs) * 60 + min) * 60 + secs)
 }
-
 
 #[cfg(test)]
 mod tests {

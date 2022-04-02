@@ -1,10 +1,6 @@
-#![allow(unused)]
-use std::{
-    borrow::BorrowMut,
-    io::{stdout, BufRead, Read, Write},
-};
+use std::io::{stdout, Read, Write};
 
-use clap::{ArgEnum, Args, Parser};
+use clap::{Args, Parser};
 use format_num::format_num;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
@@ -52,10 +48,6 @@ pub enum PartitionResource {
     Time,
 }
 
-fn approx_eq(a: f64, b: f64, rel_tol: f64) -> bool {
-    (a - b).abs() / f64::min(a.abs(), b.abs()) < rel_tol
-}
-
 #[derive(Clone, Debug)]
 pub struct Partition {
     resource: PartitionResource,
@@ -63,35 +55,7 @@ pub struct Partition {
     options: CommonOptions,
 }
 
-impl Partition {
-    fn needs_increase(&self, s: JobState, usage: f64, limit: f64) -> bool {
-        if usage >= limit {
-            return true;
-        }
-        match self.resource {
-            PartitionResource::Memory => matches!(s, JobState::OutOfMemory),
-            PartitionResource::Time => matches!(s, JobState::Timeout),
-        }
-    }
-
-    fn estimate_usage(&self, s: JobState, current: f64, limit: f64) -> f64 {
-        let u = current * (1.0 + self.options.margin);
-        if s == JobState::Completed {
-            u
-        } else {
-            limit.max(u)
-        }
-    }
-}
-
 impl PartitionResource {
-    const fn output_field(self) -> &'static str {
-        use PartitionResource::*;
-        match self {
-            Memory => "NewReqMem",
-            Time => "NewTimelimit",
-        }
-    }
     const fn limit_field(self) -> &'static str {
         use PartitionResource::*;
         match self {
@@ -121,10 +85,6 @@ fn require_float_field(job: &Job, field: &str) -> Result<ResourceAmount> {
         .ok_or_else(|| anyhow!("expected numeric field value: {}", field))
 }
 
-fn find_bucket(val: f64, buckets: &[f64]) -> Option<usize> {
-    buckets.iter().position(|&b| val <= b)
-}
-
 fn get_new_limit(
     p: &Partition,
     j: JobState,
@@ -148,11 +108,12 @@ fn get_new_limit(
             // Case 2: Resource we're currently looking at wasn't enough
             // Job may or may not have failed but we should respect the margin.
             let mut k = get_bucket(current_with_margin);
-            let (k_limit, _) = p.buckets.iter()
+            let (k_limit, _) = p
+                .buckets
+                .iter()
                 .enumerate()
-                .min_by_key(|(k, b)| OrderF64((limit - *b).abs()))
+                .min_by_key(|(_, b)| OrderF64((limit - *b).abs()))
                 .unwrap();
-            dbg!(k, k_limit);
             debug_assert!(k_limit <= k);
             if k == k_limit && k < p.buckets.len() - 1 {
                 k += 1;
@@ -239,19 +200,23 @@ struct CommonOptions {
     ignore_exceeding: bool,
 }
 
-fn parse_memory_amount(s: &str) -> ParseResult<f64> {
-    parse_si_suffix(s).map(|m| m as f64)
+fn parse_memory_amount(s: &str) -> Result<f64> {
+    let m = parse_si_suffix(s)?;
+    if m == 0 {
+        bail!("must greater than 0");
+    }
+    Ok(m as f64)
 }
 
-fn parse_time_amount(s: &str) -> ParseResult<f64> {
+fn parse_time_amount(s: &str) -> Result<f64> {
     lazy_static::lazy_static! {
         static ref FORMAT: Regex =
             Regex::new(r"^((((?P<days>\d+)\-)?(?P<hours>\d+):)?(?P<mins>\d+):)?(?P<secs>\d+)$")
                 .unwrap();
     }
 
-    if let Ok(v) = s.parse() {
-        return Ok(v);
+    if let Ok(v) = s.parse::<u64>() {
+        return Ok(v as f64);
     }
 
     let make_error = || ParseError::Duration(s.to_string());
@@ -279,9 +244,12 @@ fn parse_time_amount(s: &str) -> ParseResult<f64> {
     let days = parse_optional_field("days")?;
     let hrs = parse_optional_field("hours")?;
     let min = parse_optional_field("mins")?;
-    let mut secs = parse_field("secs")?;
+    let secs = parse_field("secs")?;
 
     let time = ((days * 24 + hrs) * 60 + min) * 60 + secs;
+    if time == 0 {
+        bail!("must be greater than 0");
+    }
     Ok(time as f64)
 }
 
@@ -310,36 +278,30 @@ enum ResourceType {
 
 impl ResourceType {
     fn into_partition(self) -> Partition {
+        #[inline]
+        fn sort_buckets(mut buckets: Vec<f64>) -> Vec<f64> {
+            buckets.sort_unstable_by_key(|&x| OrderF64(x));
+            buckets
+        }
+
         match self {
-            ResourceType::Memory {
-                mut buckets,
+            ResourceType::Memory { buckets, options } => Partition {
+                buckets: sort_buckets(buckets),
                 options,
-            } => {
-                buckets.sort_unstable_by(|a, b| f64::partial_cmp(a, b).unwrap());
-                Partition {
-                    buckets,
-                    options,
-                    resource: PartitionResource::Memory,
-                }
-            }
-            ResourceType::Time {
-                mut buckets,
+                resource: PartitionResource::Memory,
+            },
+            ResourceType::Time { buckets, options } => Partition {
+                buckets: sort_buckets(buckets),
                 options,
-            } => {
-                buckets.sort_unstable_by(|a, b| f64::partial_cmp(a, b).unwrap());
-                Partition {
-                    buckets,
-                    options,
-                    resource: PartitionResource::Time,
-                }
-            }
+                resource: PartitionResource::Time,
+            },
         }
     }
 }
 
 fn main() -> Result<()> {
     reset_sigpipe();
-    let mut args = ClArgs::parse();
+    let args = ClArgs::parse();
     let out = stdout();
     let output = out.lock();
 
