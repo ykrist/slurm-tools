@@ -1,4 +1,4 @@
-use std::fmt::Display;
+use std::{fmt::Display, path::Path};
 
 use regex::Regex;
 use serde::{Deserialize, Serialize};
@@ -209,6 +209,19 @@ pub fn parse_duration(s: &str) -> ParseResult<u64> {
 
     Ok(((days * 24 + hrs) * 60 + min) * 60 + secs)
 }
+
+pub fn write_json<T, P>(val: T, path: P) -> Result<()>
+    where
+        T: Serialize,
+        P: AsRef<Path>,
+{
+    let path = path.as_ref();
+    let f = std::fs::File::create(path)
+        .context_write(path)?;
+    serde_json::to_writer(f, &val)
+        .context("serialization failed")
+}
+
 
 #[cfg(test)]
 mod tests {
