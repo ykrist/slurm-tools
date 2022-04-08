@@ -25,3 +25,7 @@ path="src/clean_log.rs"
 [[bin]]
 name="sacct-assign-resources"
 path="src/assign_resources.rs"
+
+[[bin]]
+name="sbatch-fake"
+path="src/sbatch_fake.rs"
