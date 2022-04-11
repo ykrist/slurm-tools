@@ -310,10 +310,6 @@ impl<'a> SbatchCall<'a> {
 
         cmd.arg(file.path());
 
-        let output = cmd
-            .output()
-            .context("failed to find sbatch or sbatch-fake")?;
-
         if o.show_script {
             println!("# {:-^80}", " COMMAND ");
             print!("{}", bin);
@@ -324,7 +320,16 @@ impl<'a> SbatchCall<'a> {
             println!("# {:-^80}", format!(" SCRIPT ({}) ", file.path().display()));
             print!("{}", self.batch_script);
         }
-        file.as_file_mut().write_all(self.batch_script.as_bytes())?;
+
+        {
+            let f = file.as_file_mut();
+            f.write_all(self.batch_script.as_bytes())?;
+            f.flush()?;
+        }
+
+        let output = cmd
+            .output()
+            .context("failed to find sbatch or sbatch-fake")?;
 
         if !output.status.success() {
             eprintln!("{}", String::from_utf8_lossy(&output.stderr));

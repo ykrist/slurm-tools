@@ -322,7 +322,16 @@ fn get_fake_id() -> u128 {
 fn main() -> Result<()> {
     let args = Args::parse();
     {
-        std::fs::File::open(&args.script).context_read(&args.script)?;
+        let script = std::fs::read_to_string(&args.script).context_read(&args.script)?;
+        if script.is_empty() {
+            bail!("Batch script is empty!")
+        }
+        if script.chars().all(char::is_whitespace) {
+            bail!("Batch script contains only whitespace!")
+        }
+        if !script.starts_with("#!") {
+            bail!("This does not look like a batch script.  The first line must start with followed by the path to an interpreter")
+        }
     }
 
     if args.parsable {
