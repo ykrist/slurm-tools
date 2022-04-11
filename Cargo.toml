@@ -1,6 +1,6 @@
 [package]
 name = "slurm-tools"
-version = "0.3.0"
+version = "0.4.0"
 edition = "2021"
 default-run = "sbatch-array"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -45,3 +45,7 @@ path="src/sbatch_fake.rs"
 [[bin]]
 name="scancel-udeps"
 path="src/scancel_udeps.rs"
+
+[[bin]]
+name="sinteractive"
+path="src/sinteractive.rs"
