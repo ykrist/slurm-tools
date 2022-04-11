@@ -1,7 +1,9 @@
-
-use std::{ffi::OsStr, fmt::{Display, Write}};
-use std::io::Write as IoWrite;
 use slurm_tools::join_display;
+use std::io::Write as IoWrite;
+use std::{
+    ffi::OsStr,
+    fmt::{Display, Write},
+};
 
 use super::*;
 
@@ -31,7 +33,6 @@ impl<'a> From<&'a str> for Arg<'a> {
     }
 }
 
-
 impl<'a> From<&'a Path> for Arg<'a> {
     fn from(s: &'a Path) -> Self {
         Arg::Path(s)
@@ -53,7 +54,7 @@ impl<'a> From<PathBuf> for Arg<'a> {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, ArgEnum)]
 pub enum Profile {
     Default,
-    Test
+    Test,
 }
 
 fn query_slurm_resources(commands: &[Vec<String>]) -> Result<Vec<SlurmResources>> {
@@ -102,7 +103,7 @@ pub struct ArraySlurmResources {
 }
 
 trait SbatchArgs {
-    fn extend_args<'a>(&'a self, args: & mut Vec<Arg<'a>>);
+    fn extend_args<'a>(&'a self, args: &mut Vec<Arg<'a>>);
 }
 
 macro_rules! impl_sbatch_args {
@@ -112,47 +113,47 @@ macro_rules! impl_sbatch_args {
             /// This lets use get compiler errors if we forget to use one of the resources
             #[deny(unused)]
             fn extend_args<'a>(&'a self, sbatch_args: & mut Vec<Arg<'a>>) {
-                let Self { 
+                let Self {
                     $($ignore_fields: _,)*
-                    job_name, 
-                    cpus, 
-                    nodes, 
-                    time, 
-                    memory, 
-                    mail_user, 
-                    mail_type, 
-                    constraint, 
-                    exclude, 
-                    nodelist, 
+                    job_name,
+                    cpus,
+                    nodes,
+                    time,
+                    memory,
+                    mail_user,
+                    mail_type,
+                    constraint,
+                    exclude,
+                    nodelist,
                 } = self;
-        
+
                 sbatch_args.push("--cpus-per-task".into());
                 sbatch_args.push(cpus.to_string().into());
-        
+
                 sbatch_args.push("--nodes".into());
                 sbatch_args.push(nodes.to_string().into());
-        
+
                 sbatch_args.push("--time".into());
                 sbatch_args.push(time.as_str().into());
-        
+
                 sbatch_args.push("--mem".into());
                 sbatch_args.push(memory.as_str().into());
-        
+
                 if let Some(mail_user) = mail_user {
                     sbatch_args.push("--mail-user".into());
                     sbatch_args.push(mail_user.as_str().into());
                 }
-        
+
                 if let Some(mail_type) = mail_type {
                     sbatch_args.push("--mail-type".into());
                     sbatch_args.push(join_display(mail_type, ',').into());
                 }
-        
+
                 if let Some(constraint) = constraint {
                     sbatch_args.push("--constraint".into());
                     sbatch_args.push(constraint.as_str().into());
                 }
-        
+
                 if let Some(exclude) = exclude {
                     sbatch_args.push("--exclude".into());
                     sbatch_args.push(exclude.as_str().into());
@@ -181,21 +182,21 @@ impl_sbatch_args!(SlurmResources, script, log_err, log_out);
 //         // log_path.push("%A_%a.stdout");
 
 //         // This lets use get compiler warnings if we forget to use one of the resources
-//         // let Self { 
-//         //     script: _, 
+//         // let Self {
+//         //     script: _,
 //         //     combine_stdout_stderr: _,
-//         //     job_name, 
-//         //     cpus, 
-//         //     nodes, 
-//         //     time, 
-//         //     memory, 
-//         //     mail_user, 
-//         //     mail_type, 
-//         //     constraint, 
-//         //     exclude, 
-//         //     nodelist, 
+//         //     job_name,
+//         //     cpus,
+//         //     nodes,
+//         //     time,
+//         //     memory,
+//         //     mail_user,
+//         //     mail_type,
+//         //     constraint,
+//         //     exclude,
+//         //     nodelist,
 //         // } = self;
-        
+
 //         // sbatch_args.push("--output".into());
 //         // sbatch_args.push(log_path.into());
 
@@ -205,7 +206,6 @@ impl_sbatch_args!(SlurmResources, script, log_err, log_out);
 //         //     log_path.push("%A_%a.stderr");
 //         //     sbatch_args.push(log_path.into());
 //         // }
-
 
 //         Ok(())
 //     }
@@ -309,8 +309,10 @@ impl<'a> SbatchCall<'a> {
         }
 
         cmd.arg(file.path());
-            
-        let output= cmd.output().context("failed to find sbatch or sbatch-fake")?;  
+
+        let output = cmd
+            .output()
+            .context("failed to find sbatch or sbatch-fake")?;
 
         if o.show_script {
             println!("# {:-^80}", " COMMAND ");
@@ -347,11 +349,7 @@ impl ArrayJobWithIndices {
         a
     }
 
-    fn add_member(
-        &mut self,
-        index: usize,
-        s: Job,
-    ) -> std::result::Result<(), Job> {
+    fn add_member(&mut self, index: usize, s: Job) -> std::result::Result<(), Job> {
         if self.members.contains_key(&index) {
             Err(s)
         } else {
@@ -362,10 +360,10 @@ impl ArrayJobWithIndices {
 
     fn job(&self, p: Profile) -> Result<SbatchCall> {
         use std::fmt::Write;
-        
+
         let mut stdout = pending_logs_dir()?;
         stdout.push("%A_%a.stdout");
-        
+
         let mut sbatch_args = vec![
             "--parsable".into(),
             "--array".into(),
@@ -389,7 +387,10 @@ impl ArrayJobWithIndices {
             writeln!(&mut batch_script, "\n;;");
         }
         writeln!(&mut batch_script, "esac");
-        Ok(SbatchCall { sbatch_args, batch_script })
+        Ok(SbatchCall {
+            sbatch_args,
+            batch_script,
+        })
     }
 }
 
@@ -411,26 +412,39 @@ impl TraceJob {
         }
         self.resources.extend_args(&mut sbatch_args);
 
-        let mut batch_script= self.resources.script.clone();
-        writeln!(&mut batch_script, "\nif [[ `sacct -n -X -j {}_{} -o state --parsable2` == 'FAILED' ]] ; then", parent_id, index);
+        let mut batch_script = self.resources.script.clone();
+        writeln!(
+            &mut batch_script,
+            "\nif [[ `sacct -n -X -j {}_{} -o state --parsable2` == 'FAILED' ]] ; then",
+            parent_id, index
+        );
         write!(&mut batch_script, "   ");
         for c in &self.command {
             write!(&mut batch_script, " {}", c);
         }
         writeln!(&mut batch_script, "\nelse");
-        writeln!(&mut batch_script, "    echo \"Trace job skipped: triggering job was not in FAILED state.\" >&2");
+        writeln!(
+            &mut batch_script,
+            "    echo \"Trace job skipped: triggering job was not in FAILED state.\" >&2"
+        );
         writeln!(&mut batch_script, "fi");
 
-        SbatchCall{ batch_script, sbatch_args }
+        SbatchCall {
+            batch_script,
+            sbatch_args,
+        }
     }
 }
 
-
-fn submit_job(options: &Options, mut array_job: ArrayJobWithIndices, db: &mut Database) -> Result<()> {
+fn submit_job(
+    options: &Options,
+    mut array_job: ArrayJobWithIndices,
+    db: &mut Database,
+) -> Result<()> {
     array_job.members.sort_keys();
 
     let array_id = array_job.job(options.profile)?.exec(options)?;
-    
+
     for (i, mut job) in array_job.members {
         let job_id = format!("{}_{}", array_id, i);
         if let Some(trace) = job.trace_job.take() {
@@ -441,9 +455,12 @@ fn submit_job(options: &Options, mut array_job: ArrayJobWithIndices, db: &mut Da
     Ok(())
 }
 
-fn submit_jobs(options: &Options, jobs: impl IntoIterator<Item=ArrayJobWithIndices>) -> Result<()> {
+fn submit_jobs(
+    options: &Options,
+    jobs: impl IntoIterator<Item = ArrayJobWithIndices>,
+) -> Result<()> {
     let mut db = load_db()?;
-    
+
     for array_job in jobs {
         if let Err(e) = submit_job(options, array_job, &mut db) {
             write_db(&db)?;
@@ -454,13 +471,11 @@ fn submit_jobs(options: &Options, jobs: impl IntoIterator<Item=ArrayJobWithIndic
     write_db(&db)
 }
 
-
 pub fn group_and_submit_jobs(
     options: &Options,
-    jobs: impl IntoIterator<Item=(ArraySlurmResources, Job)>,
+    jobs: impl IntoIterator<Item = (ArraySlurmResources, Job)>,
     array_indices: Option<Vec<usize>>,
 ) -> Result<()> {
-
     if let Some(inds) = array_indices {
         let mut groups: HashMap<ArraySlurmResources, Vec<ArrayJobWithIndices>> = Default::default();
 
@@ -484,11 +499,7 @@ pub fn group_and_submit_jobs(
             }
         }
 
-        submit_jobs(
-            options,
-            groups.into_values().flatten()
-        )
-        
+        submit_jobs(options, groups.into_values().flatten())
     } else {
         let mut groups: HashMap<ArraySlurmResources, ArrayJob> = Default::default();
         for (a, member) in jobs {
@@ -500,14 +511,10 @@ pub fn group_and_submit_jobs(
                 groups.insert(a, job);
             }
         }
-        
-        submit_jobs(
-            options, 
-            groups.into_values().map(ArrayJob::assign_indices)
-        )
+
+        submit_jobs(options, groups.into_values().map(ArrayJob::assign_indices))
     }
 }
-
 
 pub fn main(options: Options, command: Vec<ArgumentToken>) -> Result<()> {
     let (template, args) = parse_command(command)?;
@@ -519,7 +526,7 @@ pub fn main(options: Options, command: Vec<ArgumentToken>) -> Result<()> {
                 .indices(i)
         })
         .transpose()?;
-    let mut commands = substitute_args( &template, args);
+    let mut commands = substitute_args(&template, args);
 
     if options.profile == Profile::Test {
         let k = commands.len();
@@ -533,11 +540,12 @@ pub fn main(options: Options, command: Vec<ArgumentToken>) -> Result<()> {
             c.push("trace".to_string());
         }
         let mut resources = query_slurm_resources(&commands)?;
-        let mut trace_jobs = resources.split_off(k)
+        let mut trace_jobs = resources
+            .split_off(k)
             .into_iter()
             .zip(commands.split_off(k))
-            .map(|(resources, command)| TraceJob{ resources, command });
-    
+            .map(|(resources, command)| TraceJob { resources, command });
+
         let jobs = commands
             .into_iter()
             .zip(resources)
@@ -547,9 +555,9 @@ pub fn main(options: Options, command: Vec<ArgumentToken>) -> Result<()> {
                 j.trace_job = Some(trace_jobs.next().unwrap());
                 (arr, j)
             });
-        
-            group_and_submit_jobs(&options, jobs, array_indices)?;
-    } else {   
+
+        group_and_submit_jobs(&options, jobs, array_indices)?;
+    } else {
         let resources = query_slurm_resources(&commands)?;
         let jobs = commands
             .into_iter()
@@ -561,7 +569,7 @@ pub fn main(options: Options, command: Vec<ArgumentToken>) -> Result<()> {
     Ok(())
 }
 
-fn fmt_array_indices(vals: impl IntoIterator<Item=usize>) -> String {
+fn fmt_array_indices(vals: impl IntoIterator<Item = usize>) -> String {
     let mut iter = vals.into_iter();
     let mut prev = iter.next().expect("empty iterator");
     let mut group_start = prev;
@@ -569,7 +577,7 @@ fn fmt_array_indices(vals: impl IntoIterator<Item=usize>) -> String {
 
     fn fmt_group(s: &mut String, start: usize, end: usize) {
         use std::fmt::Write;
-        match end - start  {
+        match end - start {
             0 => write!(s, "{}", start),
             1 => write!(s, "{},{}", start, end),
             _ => write!(s, "{}-{}", start, end),
@@ -589,7 +597,6 @@ fn fmt_array_indices(vals: impl IntoIterator<Item=usize>) -> String {
     s
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -600,10 +607,10 @@ mod tests {
         assert_eq!(&fmt_array_indices([0, 1]), "0,1");
         assert_eq!(&fmt_array_indices([0, 1, 2]), "0-2");
         assert_eq!(&fmt_array_indices([0, 1, 2, 4]), "0-2,4");
-        assert_eq!(&fmt_array_indices([0, 1, 2, 4,5]), "0-2,4,5");
+        assert_eq!(&fmt_array_indices([0, 1, 2, 4, 5]), "0-2,4,5");
         assert_eq!(&fmt_array_indices([0, 1, 2, 4, 5, 6]), "0-2,4-6");
         assert_eq!(&fmt_array_indices([0, 4, 5, 6]), "0,4-6");
         assert_eq!(&fmt_array_indices([0, 1, 4, 5, 6]), "0,1,4-6");
-        assert_eq!(&fmt_array_indices([0, 1, 3, 4, 5, 7,8,9]), "0,1,3-5,7-9");
+        assert_eq!(&fmt_array_indices([0, 1, 3, 4, 5, 7, 8, 9]), "0,1,3-5,7-9");
     }
 }

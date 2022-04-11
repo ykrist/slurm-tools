@@ -1,7 +1,11 @@
-use std::{fmt::Display, path::{Path, PathBuf}, io::Write};
+use std::{
+    fmt::Display,
+    io::Write,
+    path::{Path, PathBuf},
+};
 
 use regex::Regex;
-use serde::{Deserialize, Serialize, de::DeserializeOwned};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
 use std::collections::{HashMap, HashSet};
 
@@ -211,42 +215,38 @@ pub fn parse_duration(s: &str) -> ParseResult<u64> {
 }
 
 pub fn write_json<T, P>(val: T, path: P) -> Result<()>
-    where
-        T: Serialize,
-        P: AsRef<Path>,
+where
+    T: Serialize,
+    P: AsRef<Path>,
 {
     let path = path.as_ref();
-    let mut f = std::fs::File::create(path)
-        .context_write(path)?;
-    serde_json::to_writer(&mut f, &val)
-        .context("serialization failed")?;
+    let mut f = std::fs::File::create(path).context_write(path)?;
+    serde_json::to_writer(&mut f, &val).context("serialization failed")?;
     f.write_all(b"\n")?;
     Ok(())
 }
 
 pub fn read_json<T, P>(path: P) -> Result<T>
-    where
-        T: DeserializeOwned,
-        P: AsRef<Path>,
+where
+    T: DeserializeOwned,
+    P: AsRef<Path>,
 {
     let path = path.as_ref();
-    let f = std::fs::File::open(path)
-        .context_read(path)?;
-    serde_json::from_reader(f)
-        .context("deserialization failed")
+    let f = std::fs::File::open(path).context_read(path)?;
+    serde_json::from_reader(f).context("deserialization failed")
 }
 
 pub fn join_display<I, S>(values: I, sep: S) -> String
-    where
-        I: IntoIterator,
-        I::Item: Display,
-        S: Display + Clone,
+where
+    I: IntoIterator,
+    I::Item: Display,
+    S: Display + Clone,
 {
     use std::fmt::Write;
     let mut values = values.into_iter();
     let mut s = match values.next() {
         Some(v) => v.to_string(),
-        None => return String::new()
+        None => return String::new(),
     };
     for v in values {
         write!(&mut s, "{}{}", &sep, &v).unwrap();
@@ -254,16 +254,14 @@ pub fn join_display<I, S>(values: I, sep: S) -> String
     s
 }
 
-
 pub fn config_directory() -> Result<PathBuf> {
-    let mut p  =dirs::config_dir()
-        .ok_or_else(|| anyhow!("unable to determine user config directory"))?;
+    let mut p =
+        dirs::config_dir().ok_or_else(|| anyhow!("unable to determine user config directory"))?;
     p.push("slurm-tools");
     std::fs::create_dir_all(&p)
         .with_context(|| format!("failed to create slurm-tools config subdirectory: {:?}", &p))?;
     Ok(p)
 }
-
 
 #[cfg(test)]
 mod tests {

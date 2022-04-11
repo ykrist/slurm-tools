@@ -308,26 +308,26 @@ struct Args {
     #[clap(long)]
     wrap: Option<String>,
 
-    
     script: String,
 
-    script_args: Vec<String>
+    script_args: Vec<String>,
 }
 
 fn get_fake_id() -> u128 {
-    SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_nanos()
+    SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos()
 }
 fn main() -> Result<()> {
     let args = Args::parse();
     {
-        std::fs::File::open(&args.script)
-            .context_read(&args.script)?;
+        std::fs::File::open(&args.script).context_read(&args.script)?;
     }
-    
+
     if args.parsable {
         println!("{};partition-name", get_fake_id());
     }
-
 
     Ok(())
 }

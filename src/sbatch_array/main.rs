@@ -2,9 +2,10 @@
 
 use std::{
     collections::{HashMap, HashSet},
-    io::{BufRead, BufReader, Write, Read},
+    fs::DirEntry,
+    io::{BufRead, BufReader, Read, Write},
     path::{Path, PathBuf},
-    vec, fs::DirEntry,
+    vec,
 };
 
 use indexmap::IndexSet;
@@ -130,7 +131,7 @@ enum ClArgs {
         /// the first SEP. See GNU parallel documentation for
         /// details on how to construct argument lists. The target
         /// command must accept a `--p-slurminfo R W` switch, and when
-        /// given this option, should read command line arguments 
+        /// given this option, should read command line arguments
         /// from the R file and write the necessary Slurm information the
         /// the W file befor exiting with 0 return code.
         #[clap(required(true), parse(from_str))]
@@ -143,10 +144,10 @@ enum ClArgs {
     /// Dump the database in JSON form to STDOUT.
     Dump,
     /// Delete the database and any logs, useful for cleaning up corrupted state.
-    Clear{ 
+    Clear {
         /// Skip confirmation prompt
         #[clap(long)]
-        force: bool
+        force: bool,
     },
 }
 
@@ -162,17 +163,17 @@ pub struct Options {
     /// Specify an argument list to use as the array index.  Argument list must only contain non-negative integers.
     #[clap(short = 'i')]
     index: Option<usize>,
-    
+
     /// Job profile to use.  `default` files jobs with `--slurm-profile default` passed to the target.
     /// `test` files two jobs: the first passes `--slurm-profile test` to the binary and the second,
-    /// which is only run if the first job fails, passes `--slurm-profile trace`.  This is mainly 
+    /// which is only run if the first job fails, passes `--slurm-profile trace`.  This is mainly
     /// intended for debugging expensive jobs.
     #[clap(short, arg_enum, default_value_t=Profile::Default)]
-    profile: Profile
+    profile: Profile,
 }
 
 pub use parse::*;
-mod parse; 
+mod parse;
 
 mod submit;
 use submit::*;
@@ -202,24 +203,24 @@ fn main() -> Result<()> {
             let data = std::fs::read(&file).context_read(&file)?;
             std::io::stdout().lock().write_all(&data);
             Ok(())
-        },
+        }
         ClArgs::List => {
-            let mut ids : Vec<_> = load_db()?.into_keys().collect();
+            let mut ids: Vec<_> = load_db()?.into_keys().collect();
             ids.sort();
             for i in ids {
                 println!("{}", i);
             }
             Ok(())
-        },
-        ClArgs::Clear{ force } => {
-            if !force { 
+        }
+        ClArgs::Clear { force } => {
+            if !force {
                 let mut buf = String::new();
                 eprint!("WARNING: This will delete all managed jobs and their output.  Continue [y/n]? ");
                 loop {
                     buf.clear();
                     std::io::stdin().read_line(&mut buf)?;
                     buf.make_ascii_lowercase();
-                    
+
                     match buf.trim() {
                         "y" | "yes" => break,
                         "n" | "no" => return Ok(()),

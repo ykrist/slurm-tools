@@ -271,7 +271,6 @@ impl<'a> Iterator for ArgumentListIter<'a> {
     }
 }
 
-
 pub fn substitute_args(templ: &[ArgumentToken], arglist: Option<ArgumentList>) -> Vec<Vec<String>> {
     let arglist = match arglist {
         Some(a) => a,
@@ -293,7 +292,6 @@ pub fn substitute_args(templ: &[ArgumentToken], arglist: Option<ArgumentList>) -
         })
         .collect()
 }
-
 
 #[cfg(test)]
 mod tests {
