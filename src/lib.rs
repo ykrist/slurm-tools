@@ -1,4 +1,4 @@
-use std::{fmt::Display, path::Path};
+use std::{fmt::Display, path::{Path, PathBuf}};
 
 use regex::Regex;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
@@ -228,15 +228,40 @@ pub fn read_json<T, P>(path: P) -> Result<T>
         P: AsRef<Path>,
 {
     let path = path.as_ref();
-    let f = std::fs::File::create(path)
+    let f = std::fs::File::open(path)
         .context_read(path)?;
     serde_json::from_reader(f)
-        .context("serialization failed")
+        .context("deserialization failed")
+}
+
+pub fn join_display<I, S>(values: I, sep: S) -> String
+    where
+        I: IntoIterator,
+        I::Item: Display,
+        S: Display + Clone,
+{
+    use std::fmt::Write;
+    let mut values = values.into_iter();
+    let mut s = match values.next() {
+        Some(v) => v.to_string(),
+        None => return String::new()
+    };
+    for v in values {
+        write!(&mut s, "{}{}", &sep, &v).unwrap();
+    }
+    s
 }
 
 
-mod config;
-pub use config::*;
+pub fn config_directory() -> Result<PathBuf> {
+    let mut p  =dirs::config_dir()
+        .ok_or_else(|| anyhow!("unable to determine user config directory"))?;
+    p.push("slurm-tools");
+    std::fs::create_dir_all(&p)
+        .with_context(|| format!("failed to create slurm-tools config subdirectory: {:?}", &p))?;
+    Ok(p)
+}
+
 
 #[cfg(test)]
 mod tests {

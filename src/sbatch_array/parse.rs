@@ -270,3 +270,165 @@ impl<'a> Iterator for ArgumentListIter<'a> {
         Some(output)
     }
 }
+
+
+pub fn substitute_args(templ: &[ArgumentToken], arglist: Option<ArgumentList>) -> Vec<Vec<String>> {
+    let arglist = match arglist {
+        Some(a) => a,
+        None => return vec![templ.iter().cloned().map(String::from).collect()],
+    };
+
+    arglist
+        .iter()
+        .map(|args| {
+            let mut v = Vec::with_capacity(templ.len());
+            for t in templ {
+                match t {
+                    ArgumentToken::Sep { .. } => unreachable!(),
+                    ArgumentToken::Arg(s) => v.push(s.clone()),
+                    ArgumentToken::Index(i) => v.push(args[*i].clone()),
+                }
+            }
+            v
+        })
+        .collect()
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_tokens() {
+        assert_eq!(ArgumentToken::from("{1}"), ArgumentToken::Index(1));
+        assert_eq!(
+            ArgumentToken::from("{1"),
+            ArgumentToken::Arg("{1".to_string())
+        );
+        assert_eq!(
+            ArgumentToken::from(":::"),
+            ArgumentToken::Sep {
+                files: false,
+                zip: false
+            }
+        );
+        assert_eq!(
+            ArgumentToken::from(":::+"),
+            ArgumentToken::Sep {
+                files: false,
+                zip: true
+            }
+        );
+        assert_eq!(
+            ArgumentToken::from("::::"),
+            ArgumentToken::Sep {
+                files: true,
+                zip: false
+            }
+        );
+        assert_eq!(
+            ArgumentToken::from("::::+"),
+            ArgumentToken::Sep {
+                files: true,
+                zip: true
+            }
+        );
+    }
+
+    macro_rules! svec {
+        ($($t:tt)*) => {
+            [$($t)*].into_iter().map(String::from).collect::<Vec<_>>()
+        };
+    }
+
+    #[test]
+    fn arg_iter_single() {
+        let i = ArgumentList::new(&[false], vec![svec!["a", "b", "c"]]);
+        assert_eq!(
+            &i.groups,
+            &vec![ZipGroup {
+                start: 0,
+                end: 1,
+                members: 3
+            }]
+        );
+        let v: Vec<_> = i.iter().collect();
+        assert_eq!(v, vec![svec!["a"], svec!["b"], svec!["c"]]);
+    }
+
+    #[test]
+    fn arg_iter_multigroup() {
+        let i = ArgumentList::new(
+            &[false, true, true, false],
+            vec![
+                svec!["a", "b", "c"],
+                svec!["x", "y", "z"],
+                svec!["1", "2", "3", "4"],
+                svec!["i", "j"],
+            ],
+        );
+        assert_eq!(
+            &i.groups,
+            &vec![
+                ZipGroup {
+                    start: 0,
+                    end: 3,
+                    members: 3
+                },
+                ZipGroup {
+                    start: 3,
+                    end: 4,
+                    members: 2
+                },
+            ]
+        );
+        let v: Vec<_> = i.iter().collect();
+        assert_eq!(
+            v,
+            vec![
+                svec!["a", "x", "1", "i"],
+                svec!["a", "x", "1", "j"],
+                svec!["b", "y", "2", "i"],
+                svec!["b", "y", "2", "j"],
+                svec!["c", "z", "3", "i"],
+                svec!["c", "z", "3", "j"],
+            ]
+        );
+    }
+
+    #[test]
+    #[should_panic]
+    fn arg_iter_empty() {
+        ArgumentList::new(&[], vec![]);
+    }
+
+    fn expand_args(s: &str) -> Result<Vec<Vec<String>>> {
+        let (template, args) = parse_command(s.split_whitespace().map(From::from).collect())?;
+        Ok(substitute_args(&template, args))
+    }
+
+    #[test]
+    fn generate_args() -> Result<()> {
+        assert_eq!(expand_args("echo ::: 1")?, vec![svec!["echo", "1"]]);
+        assert_eq!(
+            expand_args("echo ::: 1 ::: 2 ::: 3")?,
+            vec![svec!["echo", "1", "2", "3"]]
+        );
+        assert_eq!(
+            expand_args("echo ::: 1 2 :::+ 3")?,
+            vec![svec!["echo", "1", "3"]]
+        );
+        assert_eq!(
+            expand_args("echo ::: 1 2 ::: 3 :::+ 4")?,
+            vec![svec!["echo", "1", "3", "4"], svec!["echo", "2", "3", "4"],]
+        );
+        assert_eq!(
+            expand_args("echo ::: 1 2 ::: 3 :::+ 4")?,
+            vec![svec!["echo", "1", "3", "4"], svec!["echo", "2", "3", "4"],]
+        );
+
+        assert!(expand_args("echo :::+ 1").is_err());
+        Ok(())
+    }
+}
