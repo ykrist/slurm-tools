@@ -1,4 +1,4 @@
-use std::{fmt::Display, path::{Path, PathBuf}};
+use std::{fmt::Display, path::{Path, PathBuf}, io::Write};
 
 use regex::Regex;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
@@ -216,10 +216,12 @@ pub fn write_json<T, P>(val: T, path: P) -> Result<()>
         P: AsRef<Path>,
 {
     let path = path.as_ref();
-    let f = std::fs::File::create(path)
+    let mut f = std::fs::File::create(path)
         .context_write(path)?;
-    serde_json::to_writer(f, &val)
-        .context("serialization failed")
+    serde_json::to_writer(&mut f, &val)
+        .context("serialization failed")?;
+    f.write_all(b"\n")?;
+    Ok(())
 }
 
 pub fn read_json<T, P>(path: P) -> Result<T>
