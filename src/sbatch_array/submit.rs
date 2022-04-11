@@ -176,40 +176,6 @@ macro_rules! impl_sbatch_args {
 
 impl_sbatch_args!(ArraySlurmResources, script, combine_stdout_stderr);
 impl_sbatch_args!(SlurmResources, script, log_err, log_out);
-// impl SbatchArgs for ArraySlurmResources {
-//     fn extend_args<'a>(&'a self, sbatch_args: & mut Vec<Arg<'a>>) -> Result<()> {
-//         // let mut log_path = pending_logs_dir()?;
-//         // log_path.push("%A_%a.stdout");
-
-//         // This lets use get compiler warnings if we forget to use one of the resources
-//         // let Self {
-//         //     script: _,
-//         //     combine_stdout_stderr: _,
-//         //     job_name,
-//         //     cpus,
-//         //     nodes,
-//         //     time,
-//         //     memory,
-//         //     mail_user,
-//         //     mail_type,
-//         //     constraint,
-//         //     exclude,
-//         //     nodelist,
-//         // } = self;
-
-//         // sbatch_args.push("--output".into());
-//         // sbatch_args.push(log_path.into());
-
-//         // if !combine_stdout_stderr {
-//         //     let mut log_path = pending_logs_dir()?;
-//         //     sbatch_args.push("--error".into());
-//         //     log_path.push("%A_%a.stderr");
-//         //     sbatch_args.push(log_path.into());
-//         // }
-
-//         Ok(())
-//     }
-// }
 
 #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub struct Job {
@@ -291,8 +257,8 @@ struct SbatchCall<'a> {
 
 fn parse_sbatch_output(bytes: &[u8]) -> Result<usize> {
     let s = std::str::from_utf8(bytes).context("failed to get sbatch output")?;
-    let make_context = || format!("failed to parse sbatch output:\n{}", s);
-    let s = s.split(';').next().unwrap();
+    let make_context = || format!("failed to parse sbatch output: {:?}", s);
+    let s = s.split(';').next().unwrap().trim();
     let id = s.parse().with_context(make_context)?;
     Ok(id)
 }
