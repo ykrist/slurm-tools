@@ -264,7 +264,7 @@ fn parse_sbatch_output(bytes: &[u8]) -> Result<usize> {
 }
 
 impl<'a> SbatchCall<'a> {
-    fn exec(&self, o: &Options) -> Result<usize> {
+    fn exec(&self, o: &Options) -> Result<Option<usize>> {
         let bin = sbatch().binary();
         let mut file = create_tmp_file()?;
 
@@ -287,6 +287,11 @@ impl<'a> SbatchCall<'a> {
             print!("{}", self.batch_script);
         }
 
+        if o.dry_run && cmd.get_args().any(|s| s == "--dependency") {
+            // --dependency with a bogus job ID will cause sbatch to fail.
+            return Ok(None);
+        }
+
         {
             let f = file.as_file_mut();
             f.write_all(self.batch_script.as_bytes())?;
@@ -302,7 +307,13 @@ impl<'a> SbatchCall<'a> {
             bail!("sbatch failed with exit code {}", output.status)
         }
 
-        parse_sbatch_output(&output.stdout)
+        if o.dry_run {
+            Ok(None)
+        } else {
+            let i = parse_sbatch_output(&output.stdout)?;
+            eprintln!("Submitted job {}", i);
+            Ok(Some(i))
+        }
     }
 }
 
@@ -417,11 +428,13 @@ fn submit_job(
     let array_id = array_job.job(options.profile)?.exec(options)?;
 
     for (i, mut job) in array_job.members {
-        let job_id = format!("{}_{}", array_id, i);
         if let Some(trace) = job.trace_job.take() {
-            trace.job(array_id, i).exec(options)?;
+            trace.job(array_id.unwrap_or(0), i).exec(options)?;
         }
-        db.insert(job_id, job);
+
+        if !options.dry_run {
+            db.insert(format!("{}_{}", array_id.unwrap(), i), job);
+        }
     }
     Ok(())
 }

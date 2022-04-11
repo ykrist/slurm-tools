@@ -4,8 +4,8 @@ use std::{
     collections::{HashMap, HashSet},
     fs::DirEntry,
     io::{BufRead, BufReader, Read, Write},
-    process::Stdio,
     path::{Path, PathBuf},
+    process::Stdio,
     vec,
 };
 
@@ -32,26 +32,26 @@ impl Sbatch {
 }
 
 fn sbatch() -> Sbatch {
-    static SBATCH: Lazy<Sbatch> =
-        Lazy::new(|| {
-            let s = std::process::Command::new("sbatch").arg("-V")
-                .stderr(Stdio::null())
-                .stdout(Stdio::null())
-                .stdin(Stdio::null())
-                .status();
+    static SBATCH: Lazy<Sbatch> = Lazy::new(|| {
+        let s = std::process::Command::new("sbatch")
+            .arg("-V")
+            .stderr(Stdio::null())
+            .stdout(Stdio::null())
+            .stdin(Stdio::null())
+            .status();
 
-            match s {
-                Ok(_) => Sbatch::Real,
-                Err(e) => {
-                    if e.kind() == std::io::ErrorKind::NotFound {
-                        eprintln!("sbatch was not found on this system, falling back to sbatch-fake.");
-                        Sbatch::Fake
-                    } else {
-                        panic!("{}", e)
-                    }
+        match s {
+            Ok(_) => Sbatch::Real,
+            Err(e) => {
+                if e.kind() == std::io::ErrorKind::NotFound {
+                    eprintln!("sbatch was not found on this system, falling back to sbatch-fake.");
+                    Sbatch::Fake
+                } else {
+                    panic!("{}", e)
                 }
             }
-        });
+        }
+    });
     *SBATCH
 }
 
@@ -125,7 +125,7 @@ fn pending_logs_dir() -> Result<PathBuf> {
 }
 
 #[derive(Parser, Debug, Clone)]
-#[clap(trailing_var_arg(true))]
+#[clap(trailing_var_arg(true), infer_subcommands(true))]
 enum ClArgs {
     /// Submit a new set of jobs
     Submit {
