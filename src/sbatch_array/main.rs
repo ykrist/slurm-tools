@@ -11,7 +11,7 @@ use indexmap::IndexSet;
 use labrat::{Deserialize, MailType, Serialize, SlurmResources};
 use once_cell::sync::Lazy;
 use posix_cli_utils::*;
-use slurm_tools::{write_json, IndexMap};
+use slurm_tools::{config_directory, read_json, write_json, IndexMap};
 use tempfile::NamedTempFile;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -30,18 +30,18 @@ impl Sbatch {
 }
 
 fn sbatch() -> Sbatch {
-    static SBATCH : Lazy<Sbatch> = Lazy::new(|| 
-    match std::process::Command::new("sbatch").spawn() {
-        Ok(_) => Sbatch::Real,
-        Err(e) => {
-            if e.kind() == std::io::ErrorKind::NotFound {
-                eprintln!("sbatch was not found on this system, falling back to sbatch-fake.");
-                Sbatch::Fake
-            } else {
-                panic!("{}", e)
+    static SBATCH: Lazy<Sbatch> =
+        Lazy::new(|| match std::process::Command::new("sbatch").spawn() {
+            Ok(_) => Sbatch::Real,
+            Err(e) => {
+                if e.kind() == std::io::ErrorKind::NotFound {
+                    eprintln!("sbatch was not found on this system, falling back to sbatch-fake.");
+                    Sbatch::Fake
+                } else {
+                    panic!("{}", e)
+                }
             }
-        }, 
-    });
+        });
     *SBATCH
 }
 
@@ -63,169 +63,39 @@ fn read_lines_from_file(path: impl AsRef<Path>, dest: &mut Vec<String>) -> Resul
     Ok(())
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-enum ArgumentToken {
-    Arg(String),
-    Sep { files: bool, zip: bool },
-    Index(usize),
-}
-
-impl From<ArgumentToken> for String {
-    fn from(t: ArgumentToken) -> Self {
-        use ArgumentToken::*;
-        match t {
-            Arg(s) => s,
-            Index(i) => format!("{{{}}}", i),
-            Sep { files, zip } => {
-                let mut s = ":::".to_string();
-                if files {
-                    s.push(':')
-                }
-                if zip {
-                    s.push('+')
-                }
-                s
-            }
-        }
-    }
-}
-
-impl ArgumentToken {
-    fn is_sep(&self) -> bool {
-        matches!(self, ArgumentToken::Sep { .. })
-    }
-}
-
-impl From<&str> for ArgumentToken {
-    fn from(s: &str) -> Self {
-        use ArgumentToken::*;
-        match s {
-            ":::" => Sep {
-                files: false,
-                zip: false,
-            },
-            ":::+" => Sep {
-                files: false,
-                zip: true,
-            },
-            "::::" => Sep {
-                files: true,
-                zip: false,
-            },
-            "::::+" => Sep {
-                files: true,
-                zip: true,
-            },
-            s => {
-                if let Some(s) = s.strip_prefix('{') {
-                    if let Some(s) = s.strip_suffix('}') {
-                        if let Ok(i) = s.parse() {
-                            return Index(i);
-                        }
-                    }
-                }
-                Arg(s.to_string())
-            }
-        }
-    }
-}
-
-#[derive(Clone, Debug, Parser)]
+#[derive(Parser, Debug, Clone)]
 #[clap(trailing_var_arg(true))]
-struct ClArgs {
-    #[clap(flatten)]
-    options: Options,
-    #[clap(required(true), parse(from_str))]
-    command: Vec<ArgumentToken>,
+enum ClArgs {
+    Submit {
+        #[clap(flatten)]
+        options: Options,
+        #[clap(required(true), parse(from_str))]
+        command: Vec<ArgumentToken>,
+    },
+    Push,
 }
 
 #[derive(Clone, Debug, Args)]
 #[clap(trailing_var_arg(true))]
 struct Options {
+    /// Don't submit, just test using sbatch's --test-only flag
     #[clap(short = 'd')]
     dry_run: bool,
+    /// Print the generated sbatch scripts and command line flags.
     #[clap(short = 'v')]
     show_script: bool,
+    /// Specify an argument list to use as the array index.  Argument list must only contain non-negative integers.
     #[clap(short = 'i')]
     index: Option<usize>,
 }
 
-fn get_template(command: &mut Vec<ArgumentToken>) -> Result<Vec<ArgumentToken>> {
-    let mut template_end = command.len();
-    let mut n_args = 0;
-    for (k, c) in command.iter().enumerate().rev() {
-        if c.is_sep() {
-            template_end = k;
-            n_args += 1;
-        }
-    }
-    for c in &command[..template_end] {
-        if let &ArgumentToken::Index(i) = c {
-            if i >= n_args {
-                bail!(
-                    "Index given is {} but only {} argument lists given",
-                    i,
-                    n_args
-                );
-            }
-        }
-    }
-    let mut tmpl = command.split_off(template_end);
-    std::mem::swap(&mut tmpl, command);
-    for i in (0..n_args).map(ArgumentToken::Index) {
-        if !tmpl.contains(&i) {
-            tmpl.push(i)
-        }
-    }
-    Ok(tmpl)
-}
-
-fn parse_command(
-    mut command: Vec<ArgumentToken>,
-) -> Result<(Vec<ArgumentToken>, Option<ArgumentList>)> {
-    let template = get_template(&mut command)?;
-    if command.is_empty() {
-        return Ok((template, None));
-    }
-
-    let mut zip_with_prev = vec![];
-    let mut arglists = vec![];
-
-    let starts = command
-        .iter()
-        .enumerate()
-        .filter_map(|(k, s)| if s.is_sep() { Some(k) } else { None });
-    let ends = starts.clone().skip(1).chain([command.len()]);
-
-    for (i, j) in starts.zip(ends) {
-        let mut arglist = vec![];
-        let (files, zip) = match &command[i] {
-            &ArgumentToken::Sep { files, zip } => (files, zip),
-            _ => unreachable!(),
-        };
-        if zip_with_prev.is_empty() && zip {
-            bail!("first argument list cannot be zipped with previous")
-        }
-
-        for t in &command[(i + 1)..j] {
-            let t = t.clone();
-            if files {
-                read_lines_from_file(String::from(t), &mut arglist)?;
-            } else {
-                arglist.push(t.clone().into());
-            }
-        }
-        arglists.push(arglist);
-        zip_with_prev.push(zip);
-    }
-    let arg_iter = ArgumentList::new(&zip_with_prev, arglists);
-    Ok((template, Some(arg_iter)))
-}
+pub use parse::*;
+mod parse; 
 
 fn substitute_args(templ: &[ArgumentToken], arglist: Option<ArgumentList>) -> Vec<Vec<String>> {
     let arglist = match arglist {
         Some(a) => a,
-        None => return vec![templ.iter().cloned().map(String::from).collect()]
+        None => return vec![templ.iter().cloned().map(String::from).collect()],
     };
 
     arglist
@@ -242,140 +112,6 @@ fn substitute_args(templ: &[ArgumentToken], arglist: Option<ArgumentList>) -> Ve
             v
         })
         .collect()
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct ZipGroup {
-    start: usize,
-    end: usize,
-    members: usize,
-}
-
-#[derive(Clone, Debug)]
-struct ArgumentList {
-    groups: Vec<ZipGroup>,
-    arglists: Vec<Vec<String>>,
-}
-
-#[derive(Clone, Debug)]
-struct ArgumentListIter<'a> {
-    index_buf: Vec<usize>,
-    l: &'a ArgumentList
-}
-
-#[derive(Clone, Debug)]
-struct ArgumentListIndices {
-    inner_period: usize,
-    outer_period: usize,
-    array_indices: Vec<usize>,
-}
-
-
-impl ArgumentList {
-    fn new(zip_with_previous: &[bool], mut arglists: Vec<Vec<String>>) -> Self {
-        assert_eq!(zip_with_previous.len(), arglists.len());
-        assert!(!arglists.is_empty());
-        let mut groups = vec![];
-        let mut start = 0;
-        let mut members = arglists[0].len();
-        debug_assert_eq!(zip_with_previous[0], false);
-        for (end, (z, args)) in zip_with_previous.iter().zip(&arglists).enumerate().skip(1) {
-            if !z {
-                groups.push(ZipGroup {
-                    start,
-                    end,
-                    members,
-                });
-                start = end;
-                members = args.len();
-            } else {
-                members = members.min(args.len());
-            };
-        }
-        groups.push(ZipGroup {
-            start,
-            end: arglists.len(),
-            members,
-        });
-        for g in &groups {
-            for k in g.start..g.end {
-                arglists[k].truncate(g.members);
-            }
-        }
-        ArgumentList {
-            groups,
-            arglists,
-        }
-    }
-
-    fn iter(&self) -> ArgumentListIter {
-        let index_buf = vec![0; self.groups.len()];
-        ArgumentListIter { index_buf, l: self }
-    }
-
-    fn indices(&self, i: usize) -> Result<Vec<usize>> {
-        let array_inds: Result<IndexSet<usize>> = {
-            let args = self.arglists.get(i).ok_or_else(
-                || anyhow!("Argument with index {} reference but only {} argument lists given", 
-                i,
-                    self.arglists.len()
-                ))?;
-            args.iter().map(|s| s.parse().map_err(|_| anyhow!("Index argument list must be non-negative integers."))).collect()
-        };
-        let mut array_inds = array_inds?;
-        array_inds.sort();
-
-        let inner_period = self.groups[(i+1)..].iter().fold(1 , |acc, x| acc * x.members);
-        let outer_period = self.groups[..i].iter().fold(1 , |acc, x| acc * x.members);
-        let n = array_inds.len() * inner_period * outer_period;
-
-        let mut inds = Vec::with_capacity(n);
-        for _ in 0..outer_period {
-            for &k in &array_inds {
-                for _ in 0..inner_period {
-                    inds.push(k)
-                }
-            }
-        }
-        Ok(inds)
-    }
-}
-
-impl<'a> ArgumentListIter<'a> {
-    fn inc_indices(&mut self) {
-        for k in (0..self.index_buf.len()).rev() {
-            self.index_buf[k] += 1;
-            if self.index_buf[k] >= self.l.groups[k].members && k > 0 {
-                self.index_buf[k] = 0;
-            } else {
-                return;
-            }
-        }
-    }
-}
-impl<'a> Iterator for ArgumentListIter<'a> {
-    type Item = Vec<String>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.index_buf.is_empty() {
-            return None;
-        }
-        if self.index_buf[0] >= self.l.groups[0].members {
-            return None;
-        }
-
-        let mut output = Vec::with_capacity(self.l.arglists.len());
-
-        for (&k, group) in self.index_buf.iter().zip(&self.l.groups) {
-            for i in group.start..group.end {
-                output.push(self.l.arglists[i][k].clone())
-            }
-        }
-
-        debug_assert_eq!(output.len(), self.l.arglists.len());
-        self.inc_indices();
-        Some(output)
-    }
 }
 
 fn query_slurm_resources(commands: &[Vec<String>]) -> Result<Vec<SlurmResources>> {
@@ -499,9 +235,11 @@ impl SubmitJob {
         if o.dry_run {
             cmd.arg("--test-only");
         }
-        
+
         cmd.arg(file.path());
-        let status = cmd.status().context("failed to find sbatch or sbatch-fake")?;
+        let status = cmd
+            .status()
+            .context("failed to find sbatch or sbatch-fake")?;
 
         if o.show_script {
             println!("# {:-^80}", " COMMAND ");
@@ -564,8 +302,8 @@ impl ArrayJobWithIndices {
             writeln!(&mut batch_script, "\n;;");
         }
 
-        SubmitJob { 
-            sbatch_args: vec![], 
+        SubmitJob {
+            sbatch_args: vec![],
             batch_script,
         }
     }
@@ -576,14 +314,16 @@ impl ArrayJobWithIndices {
     }
 }
 
-
 fn group_and_submit_jobs(
     options: &Options,
     commands: Vec<Vec<String>>,
     resources: Vec<SlurmResources>,
     array_indices: Option<Vec<usize>>,
 ) -> Result<()> {
-    fn submit_jobs(options: &Options, jobs: impl IntoIterator<Item=ArrayJobWithIndices>) -> Result<()> {
+    fn submit_jobs(
+        options: &Options,
+        jobs: impl IntoIterator<Item = ArrayJobWithIndices>,
+    ) -> Result<()> {
         for job in jobs {
             job.job().submit(options)?;
         }
@@ -611,16 +351,18 @@ fn group_and_submit_jobs(
                     g.push(ArrayJobWithIndices::new_with_one(a, i, m));
                 }
             } else {
-                groups.insert(a.clone(), vec![ArrayJobWithIndices::new_with_one(a, i, member)]);
+                groups.insert(
+                    a.clone(),
+                    vec![ArrayJobWithIndices::new_with_one(a, i, member)],
+                );
             }
         }
-        submit_jobs(options, 
-            groups.into_values()
-            .flatten()
-            .map(|mut a| {
+        submit_jobs(
+            options,
+            groups.into_values().flatten().map(|mut a| {
                 a.members.sort_keys();
                 a
-            })
+            }),
         )
     } else {
         let mut groups: HashMap<ArraySlurmResources, ArrayJob> = Default::default();
@@ -638,10 +380,12 @@ fn group_and_submit_jobs(
 }
 
 fn query_pending_jobs() -> Result<HashSet<String>> {
-    if sbatch() == Sbatch::Fake { return Ok(Default::default()) }
+    if sbatch() == Sbatch::Fake {
+        return Ok(Default::default());
+    }
 
     let out = std::process::Command::new("squeue")
-        .args(&["-o", "%50i", "-r"])
+        .args(&["-o", "%i", "--array", "--array-unique", "--all"])
         .output()
         .context("failed to spawn squeue")?;
 
@@ -649,20 +393,137 @@ fn query_pending_jobs() -> Result<HashSet<String>> {
         let out = String::from_utf8(out.stdout)?;
         Ok(out.lines().skip(1).map(|s| s.to_string()).collect())
     } else {
-        bail!("squeue failed with status: {}\n{}", out.status, String::from_utf8_lossy(&out.stderr))
+        bail!(
+            "squeue failed with status: {}\n{}",
+            out.status,
+            String::from_utf8_lossy(&out.stderr)
+        )
     }
 }
 
-fn main() -> Result<()> {
-    let ClArgs { options, command }= ClArgs::parse();
+fn db_file() -> Result<PathBuf> {
+    let mut p = config_directory()?;
+    p.push("slurm_jobs.json");
+    Ok(p)
+}
+
+fn pending_logs_dir() -> Result<PathBuf> {
+    let mut p = config_directory()?;
+    p.push("pending-logs");
+    std::fs::create_dir_all(&p)
+        .with_context(|| format!("failed to create slurm-tools config subdirectory: {:?}", &p))?;
+    Ok(p)
+}
+
+type Database = HashMap<String, ArrayJobMember>;
+
+fn load_db() -> Result<Database> {
+    let p = db_file()?;
+    if p.exists() {
+        read_json(p)
+    } else {
+        Ok(Default::default())
+    }
+}
+
+fn write_db(data: &Database) -> Result<()> {
+    write_json(data, db_file()?)
+}
+
+fn stderr_log(job_id: &str) -> Result<PathBuf> {
+    let mut p = pending_logs_dir()?;
+    p.push(job_id);
+    p.set_extension("stderr");
+    Ok(p)
+}
+
+fn stdout_log(job_id: &str) -> Result<PathBuf> {
+    let mut p = pending_logs_dir()?;
+    p.push(job_id);
+    p.set_extension("stdout");
+    Ok(p)
+}
+
+enum PushLogFailure {
+    CreateDir(anyhow::Error),
+    MoveFiles(anyhow::Error),
+}
+
+fn push_log(job_id: &str, job: &ArrayJobMember) -> std::result::Result<(), PushLogFailure> {
+    fn create_dir(p: &Path) -> std::result::Result<(), PushLogFailure> {
+        std::fs::create_dir_all(p)
+            .context_create_dir(p)
+            .map_err(PushLogFailure::CreateDir)
+    }
+
+    create_dir(job.log_out.parent().unwrap())?;
+    if let Some(ref p) = job.log_err {
+        create_dir(p)?;
+    }
+
+    let move_files = || -> Result<()> {
+        let src = stdout_log(job_id)?;
+        std::fs::rename(&src, &job.log_out).context_move_file(&src, &job.log_out)?;
+        if let Some(ref p) = job.log_err {
+            let src = stderr_log(job_id)?;
+            std::fs::rename(&src, p).context_move_file(&src, p)?;
+        }
+        Ok(())
+    };
+    move_files().map_err(PushLogFailure::MoveFiles)
+}
+
+fn push_logs() -> Result<()> {
+    let mut db = load_db()?;
+
+    let queue: Vec<_> = {
+        let pending = query_pending_jobs()?;
+        db.keys()
+            .filter(|&k| !pending.contains(k))
+            .cloned()
+            .collect()
+    };
+
+    for job_id in queue {
+        let job = db.remove(&job_id).unwrap();
+        match push_log(&job_id, &job) {
+            Ok(()) => {}
+            Err(PushLogFailure::CreateDir(e)) => {
+                db.insert(job_id, job);
+                eprintln!("{}", e);
+            }
+            Err(PushLogFailure::MoveFiles(e)) => {
+                eprintln!("{}", e);
+            }
+        }
+    }
+
+    write_db(&db)?;
+
+    Ok(())
+}
+
+fn submit(options: Options, command: Vec<ArgumentToken>) -> Result<()> {
     let (template, args) = parse_command(command)?;
-    let array_indices = options.index.map(|i|
-        args.as_ref().ok_or_else(|| anyhow!("At least one argument list is required with "))?.indices(i)
-    ).transpose()?;
+    let array_indices = options
+        .index
+        .map(|i| {
+            args.as_ref()
+                .ok_or_else(|| anyhow!("At least one argument list is required with "))?
+                .indices(i)
+        })
+        .transpose()?;
     let commands = substitute_args(&template, args);
     let resources = query_slurm_resources(&commands)?;
     group_and_submit_jobs(&options, commands, resources, array_indices)?;
     Ok(())
+}
+
+fn main() -> Result<()> {
+    match ClArgs::parse() {
+        ClArgs::Push => push_logs(),
+        ClArgs::Submit { options, command } => submit(options, command),
+    }
 }
 
 #[cfg(test)]
@@ -726,6 +587,7 @@ mod tests {
         let v: Vec<_> = i.collect();
         assert_eq!(v, vec![svec!["a"], svec!["b"], svec!["c"]]);
     }
+
     #[test]
     fn arg_iter_multigroup() {
         let i = ArgumentList::new(

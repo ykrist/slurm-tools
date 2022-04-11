@@ -1,7 +1,7 @@
 use std::{fmt::Display, path::Path};
 
 use regex::Regex;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
 use std::collections::{HashMap, HashSet};
 
@@ -222,6 +222,21 @@ pub fn write_json<T, P>(val: T, path: P) -> Result<()>
         .context("serialization failed")
 }
 
+pub fn read_json<T, P>(path: P) -> Result<T>
+    where
+        T: DeserializeOwned,
+        P: AsRef<Path>,
+{
+    let path = path.as_ref();
+    let f = std::fs::File::create(path)
+        .context_read(path)?;
+    serde_json::from_reader(f)
+        .context("serialization failed")
+}
+
+
+mod config;
+pub use config::*;
 
 #[cfg(test)]
 mod tests {
