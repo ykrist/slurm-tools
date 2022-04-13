@@ -204,6 +204,7 @@ fn delete_db_and_logs() -> Result<()> {
 }
 
 fn main() -> Result<()> {
+    reset_sigpipe();
     match ClArgs::parse() {
         ClArgs::Push => push::main(),
         ClArgs::Submit { options, command } => submit::main(options, command),

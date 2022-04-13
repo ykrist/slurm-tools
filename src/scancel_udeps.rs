@@ -10,6 +10,7 @@ fn make_parse_error(s: &str) -> anyhow::Error {
 }
 
 fn main() -> Result<()> {
+    reset_sigpipe();
     Args::parse();
     let user = whoami::username_os();
     let squeue = Command::new("squeue")

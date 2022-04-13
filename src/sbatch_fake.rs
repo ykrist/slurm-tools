@@ -320,6 +320,7 @@ fn get_fake_id() -> u128 {
         .as_nanos()
 }
 fn main() -> Result<()> {
+    reset_sigpipe();
     let args = Args::parse();
     {
         let script = std::fs::read_to_string(&args.script).context_read(&args.script)?;
