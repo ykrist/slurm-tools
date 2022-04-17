@@ -91,7 +91,7 @@ fn get_new_limit(
     current: f64,
     limit: f64,
 ) -> Result<StdResult<ResourceAmount, ExceedsLimits>> {
-    let current_with_margin = (1. + p.options.margin) * current;
+    let current_with_margin = p.options.margin.apply_to(current);
     let get_bucket = |val| {
         p.buckets
             .iter()
@@ -185,11 +185,56 @@ struct ClArgs {
     resource: ResourceType,
 }
 
-#[derive(Args, Clone, Debug)]
-struct CommonOptions {
+
+#[derive(Args, Clone, Copy, Debug)]
+struct Margin {
+    /// Relative margin to use (probing amount will be AMOUNT * (1 + MARGIN))
     #[clap(short = 'm', default_value_t = 0.15)]
     margin: f64,
+    /// Minimum absolute margin to use (probing amount will be at least AMOUNT + MIN)
+    #[clap(long = "mmin", default_value_t=0.)]
+    min: f64,
+    /// Maximum absolute margin to use (probing amount will be at most AMOUNT + MAX)
+    #[clap(long = "mmax", default_value_t=f64::INFINITY)]
+    max: f64,
+}
 
+impl Margin {
+    #[deny(dead_code)]
+    fn validate(&self) -> Result<()> {
+        if self.margin.is_sign_negative() || self.margin.is_infinite() | self.margin.is_nan() {
+            bail!("margin must be a non-negative real number: {}", self.margin)
+        }
+
+        fn validate_minmax(val: f64, which: &str) -> Result<()> {
+            if val.is_nan() || val.is_sign_negative() {
+                bail!("{} margin must be a non-negative real number: {}", which, val)
+            }
+            Ok(())
+        }
+
+        validate_minmax(self.min, "min")?;
+        validate_minmax(self.max, "max")?;
+
+        if self.min > self.max {
+            bail!("min margin cannot be greater than max margin: {} > {}", self.min, self.max)
+        }
+
+        Ok(())
+    }
+
+    fn apply_to(&self, val: impl Into<f64>) -> f64 {
+        let val = val.into();
+        (val * (1. + self.margin))
+            .max(val + self.min)
+            .min(val + self.max)
+    }
+}
+
+#[derive(Args, Clone, Debug)]
+struct CommonOptions {
+    #[clap(flatten)]
+    margin: Margin,
     /// Name of the JSON field in which the output value will be placed.
     // Defaults: [memory = "NewReqMem", time = "NewTimelimit"]
     #[clap(short = 'o', default_value = "output")]
@@ -304,10 +349,12 @@ fn main() -> Result<()> {
     let args = ClArgs::parse();
     let out = stdout();
     let output = out.lock();
+    let partition = args.resource.into_partition();
+    partition.options.margin.validate()?;
 
     match Input::default_stdin(args.filename.as_ref())? {
-        Input::File(input) => run(input, output, &args.resource.into_partition()),
-        Input::Stdin(stdin) => run(stdin.lock(), output, &args.resource.into_partition()),
+        Input::File(input) => run(input, output, &partition),
+        Input::Stdin(stdin) => run(stdin.lock(), output, &partition),
     }
     // Ok(())
 }
@@ -321,7 +368,7 @@ mod tests {
             resource: PartitionResource::Time, // doesn't matter,
             buckets: buckets.to_vec(),
             options: CommonOptions {
-                margin: 0.1,
+                margin: Margin { margin: 0.1, min: 0., max: f64::INFINITY },
                 output_field: "test".into(),
                 ignore_exceeding: false,
             },
