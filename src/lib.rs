@@ -100,6 +100,40 @@ pub enum JobState {
     Timeout,
 }
 
+pub fn parse_job_state(s: &str) -> ParseResult<(JobState, Option<u64>)> {
+    fn simple_case(s: &str) -> Option<JobState> {
+        use JobState::*;
+        let s = match s {
+            "BOOT_FAIL" => BootFail,
+            "CANCELLED" => Cancelled,
+            "COMPLETED" => Completed,
+            "FAILED" => Failed,
+            "NODE_FAIL" => NodeFail,
+            "OUT_OF_MEMORY" => OutOfMemory,
+            "PENDING" => Pending,
+            "PREEMPTED" => Preempted,
+            "RUNNING" => Running,
+            "REQUEUED" => Requeued,
+            "RESIZING" => Resizing,
+            "REVOKED" => Revoked,
+            "SUSPENDED" => Suspended,
+            "TIMEOUT" => Timeout,
+            _ => return None,
+        };
+        Some(s)
+    }
+    if let Some(s) = simple_case(s) {
+        return Ok((s, None));
+    }
+
+    if let Some(uid) = s.strip_prefix("CANCELLED by ") {
+        if let Ok(uid) = uid.parse() {
+            return Ok((JobState::Cancelled, Some(uid)));
+        }
+    }
+    Err(ParseError::JobState(s.to_string()))
+}
+
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum JobId {

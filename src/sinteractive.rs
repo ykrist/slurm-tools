@@ -1,16 +1,16 @@
 use posix_cli_utils::*;
-use std::process::*;
 use std::os::unix::process::CommandExt;
+use std::process::*;
 
 #[derive(Parser, Clone, Debug)]
 struct ClArgs {
-    #[clap(short, long, default_value="1")]
+    #[clap(short, long, default_value = "1")]
     cpus: String,
-    #[clap(short='m', long="mem", default_value="8G")]
+    #[clap(short = 'm', long = "mem", default_value = "8G")]
     memory: String,
-    #[clap(short, long, default_value="0:10:00")]
+    #[clap(short, long, default_value = "0:10:00")]
     time: String,
-    #[clap(short='C', long)]
+    #[clap(short = 'C', long)]
     constraint: Option<String>,
 }
 
@@ -29,7 +29,6 @@ fn main() -> Result<()> {
     if let Some(ref c) = args.constraint {
         cmd.arg("--constraint");
         cmd.arg(c);
-    
     }
     cmd.arg("--pty");
     if let Ok(shell) = std::env::var("SHELL") {
@@ -37,12 +36,12 @@ fn main() -> Result<()> {
     } else {
         cmd.arg("/bin/bash");
     }
-    
+
     eprint!("running: srun");
     for c in cmd.get_args() {
         eprint!(" {}", c.to_str().unwrap());
     }
     eprintln!();
-    
+
     Err(cmd.exec().into())
 }
