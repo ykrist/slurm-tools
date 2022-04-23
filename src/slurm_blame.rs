@@ -72,6 +72,7 @@ struct PartitionInfo {
 fn get_partition_info() -> Result<HashMap<String, PartitionInfo>> {
     let mut si = Command::new("sinfo")
         .args(&["-s", "-o", "%R/%C", "--noheader"])
+        .stdout(Stdio::piped())
         .spawn()
         .context("failed to run sinfo")?;
     let mut info = HashMap::default();
@@ -119,7 +120,7 @@ fn get_usage_stats(partitions: Option<&str>) -> Result<HashMap<String, Partition
     if let Some(partitions) = partitions {
         sq.args(&["-p", partitions]);
     }
-    let mut sq = sq.spawn().context("failed to run squeue")?;
+    let mut sq = sq.stdout(Stdio::piped()).spawn().context("failed to run squeue")?;
 
     let mut stats = HashMap::new();
     for line in BufReader::new(sq.stdout.take().unwrap()).lines() {
@@ -145,32 +146,11 @@ fn get_usage_stats(partitions: Option<&str>) -> Result<HashMap<String, Partition
         bail!("squeue failed with exit code {}", sq)
     }
     for users in stats.values_mut() {
-        users.sort_unstable_by(|_, u1, _, u2| u1.running_cpus.cmp(&u2.running_cpus))
+        users.sort_unstable_by(|_, u1, _, u2| u2.running_cpus.cmp(&u1.running_cpus))
     }
 
     Ok(stats)
 }
-
-// #user	#registered_name	#jobs_total	#jobs_running	#jobs_pending	#occupied_CPUs/TOTAL
-// ------------------------------------------------------------------------------------------------------------
-//  s4625864	     "Raymon Watson"	393	393	0	393/1220
-//  s4478744	      "Finnian Rist"	215	215	0	215/1220
-//  uqsbegg1	       "Samuel Begg"	400	195	205	195/1220
-//  uqmnadee	   "Muhammad Nadeem"	76	76	0	176/1220
-//  uqmbrom1	   "Michael Bromley"	5	2	3	81/1220
-//  s4355808	  "Jonathon Emerick"	15	15	0	60/1220
-//  s4648469	"Maarten Christenhusz"	10	10	0	40/1220
-//  uqlsippe	      "Lucas Sippel"	42	37	5	37/1220
-//  s4483871	  "Wilson Lorensyah"	12	12	0	12/1220
-//  s4430291	"Michael Ciccotosto-Camp"	4	4	0	8/1220
-//   uqyrist	       "Yannik Rist"	34	3	31	3/1220
-//  uqhbaumg	  "Holger Baumgardt"	1	1	0	1/1220
-//  s4638026	     "Abbe Whitford"	2	1	1	1/1220
-//  s4434671	     "Jesse Osborne"	1	1	0	1/1220
-//  uqobellw	   "Oliver Bellwood"	1	0	1	0/1220
-//  uqimorti	      "Ian Mortimer"	1	0	1	0/1220
-// all_users	                  --	1212	965	247	1223/1220
-// ------------------------------------------------------------------------------------------------------------
 
 #[derive(Parser, Clone, Debug)]
 struct Options {
@@ -216,7 +196,13 @@ fn main() -> Result<()> {
     let stats = get_usage_stats(o.partition.as_deref())?;
     let partition_info = get_partition_info()?;
 
+    let mut first = true;
     for (pname, usage) in stats {
+        if first {
+            first = false;
+        } else {
+            println!("");
+        }
         print!("Partition: {}", pname);
         if let Some(info) = partition_info.get(&pname) {
             println!(" ({} CPUs)", info.cpus_total)
