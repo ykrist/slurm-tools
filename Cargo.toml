@@ -1,6 +1,6 @@
 [package]
 name = "slurm-tools"
-version = "0.4.2"
+version = "0.5.0"
 edition = "2021"
 default-run = "sbatch-array"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -53,5 +53,5 @@ name="sinteractive"
 path="src/sinteractive.rs"
 
 [[bin]]
-name="sblame"
+name="slurm-blame"
 path="src/slurm_blame.rs"

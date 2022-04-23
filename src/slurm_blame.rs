@@ -158,9 +158,9 @@ struct Options {
     #[clap(short, long)]
     partition: Option<String>,
 
-    /// How many users on each partition to print usage statistics for.
-    #[clap(short = 'n', default_value_t = 10)]
-    num_users: usize,
+    /// Limit the number of users shown.  By default there is not limit.
+    #[clap(short = 'n')]
+    num_users: Option<usize>,
 }
 
 fn pretty_print_usage<'a, U>(names: &HashMap<String, String>, usage: U)
@@ -170,7 +170,9 @@ where
     use comfy_table::*;
 
     let mut t = Table::new();
-    t.add_row::<[&str; 5]>([
+    t.load_preset(presets::UTF8_BORDERS_ONLY);
+
+    t.set_header::<[&str; 5]>([
         "User",
         "Name",
         "Jobs Running",
@@ -210,7 +212,11 @@ fn main() -> Result<()> {
             println!("")
         }
 
-        pretty_print_usage(&names, usage.iter().take(o.num_users));
+        if let Some(n) = o.num_users {
+            pretty_print_usage(&names, usage.iter().take(n));
+        } else {
+            pretty_print_usage(&names, usage.iter());
+        }
     }
 
     Ok(())
