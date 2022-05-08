@@ -32,9 +32,6 @@ struct ExceedsLimits {
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 struct Job {
-    #[serde(flatten)]
-    job_id: JobId,
-
     #[serde(rename = "State")]
     job_state: JobState,
 
