@@ -198,7 +198,7 @@ impl ArgumentList {
     }
 
     pub fn indices(&self, i: usize) -> Result<Vec<usize>> {
-        let array_inds: Result<IndexSet<usize>> = {
+        let array_inds: Result<Vec<usize>> = {
             let args = self.arglists.get(i).ok_or_else(|| {
                 anyhow!(
                     "Argument with index {} reference but only {} argument lists given",
