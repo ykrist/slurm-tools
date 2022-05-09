@@ -1,5 +1,6 @@
 use slurm_tools::join_display;
 use std::io::Write as IoWrite;
+use std::process::Command;
 use std::{
     ffi::OsStr,
     fmt::{Display, Write},
@@ -57,6 +58,19 @@ pub enum Profile {
     Test,
 }
 
+#[derive(Clone, Copy)]
+struct DisplayCmd<'a>(&'a Command);
+
+impl<'a> Display for DisplayCmd<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0.get_program().to_string_lossy())?;
+        for arg in self.0.get_args() {
+            write!(f, " {}", arg.to_string_lossy())?;
+        }
+        Ok(())
+    }
+}
+
 fn query_slurm_resources(commands: &[Vec<String>]) -> Result<Vec<SlurmResources>> {
     let sample_run = match commands.get(0) {
         Some(c) => c,
@@ -77,12 +91,15 @@ fn query_slurm_resources(commands: &[Vec<String>]) -> Result<Vec<SlurmResources>
     let mut child = cmd.spawn()?;
     let child_status = child.wait().unwrap();
     if !child_status.success() {
-        bail!("command exited with code {}", child_status)
+        bail!(
+            "failed to start Slurm info server: command `{}` exited with code {}",
+            DisplayCmd(&cmd),
+            child_status
+        )
     }
 
     let resources = serde_json::from_reader(slurm_resource_file.reopen()?)
         .context("failed to deserialize Slurm info")?;
-
     Ok(resources)
 }
 
