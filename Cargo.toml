@@ -30,28 +30,30 @@ comfy-table = "5.0.1"
 
 [[bin]]
 name="sacct-clean-log"
-path="src/clean_log.rs"
+path="src/bin/clean_log.rs"
 
 [[bin]]
 name="sacct-assign-resources"
-path="src/assign_resources.rs"
+path="src/bin/assign_resources.rs"
 
 [[bin]]
 name="sbatch-array"
-path="src/sbatch_array/main.rs"
+path="src/bin/sbatch_array/main.rs"
 
 [[bin]]
 name="sbatch-fake"
-path="src/sbatch_fake.rs"
+path="src/bin/sbatch_fake.rs"
 
 [[bin]]
 name="scancel-udeps"
-path="src/scancel_udeps.rs"
+path="src/bin/scancel_udeps.rs"
 
 [[bin]]
 name="sinteractive"
-path="src/sinteractive.rs"
+path="src/bin/sinteractive.rs"
 
 [[bin]]
 name="slurm-blame"
-path="src/slurm_blame.rs"
+path="src/bin/slurm_blame.rs"
+
+

@@ -150,6 +150,13 @@ pub enum JobId {
     },
 }
 
+impl JobId {
+    #[cfg(test)]
+    pub(crate) fn dummy() -> Self {
+        JobId::Normal { job_id: 0 }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ParseError {
     IncorrectNumberOfFields,
@@ -296,6 +303,29 @@ pub fn config_directory() -> Result<PathBuf> {
         .with_context(|| format!("failed to create slurm-tools config subdirectory: {:?}", &p))?;
     Ok(p)
 }
+
+/// A Slurm job record
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct Job {
+    /// The ID assigned by Slurm to the job
+    #[serde(flatten, skip_serializing)]
+    pub id: JobId,
+
+    /// The final state of the job
+    #[serde(rename = "State")]
+    pub state: JobState,
+
+    #[serde(flatten)]
+    fields: IndexMap<String, JsonValue>,
+}
+
+impl Job {
+    pub fn get_field<'a>(&'a self, field: &str) -> Option<&'a JsonValue> {
+        self.fields.get(field)
+    }
+}
+
+pub mod resource_limit;
 
 #[cfg(test)]
 mod tests {
