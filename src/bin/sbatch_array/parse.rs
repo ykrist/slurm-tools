@@ -214,12 +214,20 @@ impl ArgumentList {
                 .collect()
         };
         let mut array_inds = array_inds?;
-        array_inds.sort();
 
-        let inner_period = self.groups[(i + 1)..]
+        let index_zip_group = self
+            .groups
+            .iter()
+            .position(|g| (g.start..g.end).contains(&i))
+            .unwrap();
+        let inner_period = self.groups[(index_zip_group + 1)..]
             .iter()
             .fold(1, |acc, x| acc * x.members);
-        let outer_period = self.groups[..i].iter().fold(1, |acc, x| acc * x.members);
+
+        let outer_period = self.groups[..index_zip_group]
+            .iter()
+            .fold(1, |acc, x| acc * x.members);
+
         let n = array_inds.len() * inner_period * outer_period;
 
         let mut inds = Vec::with_capacity(n);

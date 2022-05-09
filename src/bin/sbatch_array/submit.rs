@@ -478,7 +478,8 @@ pub fn group_and_submit_jobs(
     array_indices: Option<Vec<usize>>,
 ) -> Result<()> {
     if let Some(inds) = array_indices {
-        let mut groups: HashMap<ArraySlurmResources, Vec<ArrayJobWithIndices>> = Default::default();
+        let mut groups: IndexMap<ArraySlurmResources, Vec<ArrayJobWithIndices>> =
+            Default::default();
 
         for ((a, member), i) in jobs.into_iter().zip(inds) {
             if let Some(g) = groups.get_mut(&a) {
@@ -502,7 +503,7 @@ pub fn group_and_submit_jobs(
 
         submit_jobs(options, groups.into_values().flatten())
     } else {
-        let mut groups: HashMap<ArraySlurmResources, ArrayJob> = Default::default();
+        let mut groups: IndexMap<ArraySlurmResources, ArrayJob> = Default::default();
         for (a, member) in jobs {
             if let Some(g) = groups.get_mut(&a) {
                 g.add_member(member)
